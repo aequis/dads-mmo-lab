@@ -1,0 +1,8 @@
+## Interface: 30300
+## Title: Playerbot Commander
+## Notes: WotLK 3.3.5a command panel for mod-playerbots party, raid, whisper, and GM commands.
+## Author: Dad's MMO Lab
+## Version: 0.1.0
+## SavedVariablesPerCharacter: PlayerbotCommanderDB
+
+PlayerbotCommander.lua
