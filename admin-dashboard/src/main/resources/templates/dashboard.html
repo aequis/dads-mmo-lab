@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WoW Admin Dashboard</title>
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<header>
+  <h1>WoW Admin</h1>
+  <nav>
+    <a class="active" href="/">Dashboard</a>
+    <a href="/accounts">Accounts</a>
+    <a href="/characters">Characters</a>
+    <a href="/playerbots">Playerbots</a>
+    <a href="/playerbots/config">Config</a>
+  </nav>
+</header>
+
+<main>
+  <section th:if="${commandResult}" class="notice" th:classappend="${commandResult.success()} ? ' ok' : ' bad'">
+    <strong th:text="${commandResult.success()} ? 'Command sent' : 'Command failed'">Command</strong>
+    <span th:text="${commandResult.message()}"></span>
+  </section>
+
+  <section th:unless="${soapEnabled}" class="notice">
+    SOAP commands are disabled. Add <code>WOW_ADMIN_SOAP_USER</code> and
+    <code>WOW_ADMIN_SOAP_PASSWORD</code> to enable command buttons.
+  </section>
+
+  <section class="metrics">
+    <article>
+      <span>Accounts</span>
+      <strong th:text="${view.totals.accounts}">0</strong>
+    </article>
+    <article>
+      <span>Characters</span>
+      <strong th:text="${view.totals.characters}">0</strong>
+    </article>
+    <article>
+      <span>Online</span>
+      <strong th:text="${view.totals.onlineCharacters}">0</strong>
+    </article>
+    <article>
+      <span>Random Bots</span>
+      <strong th:text="${view.totals.randomBots}">0</strong>
+    </article>
+  </section>
+
+  <section class="toolbar">
+    <form method="post" action="/command">
+      <input type="hidden" name="returnTo" value="/">
+      <input name="command" placeholder="announce Server restart in 10 minutes" th:disabled="${!soapEnabled}">
+      <button type="submit" th:disabled="${!soapEnabled}">Run GM Command</button>
+    </form>
+    <form method="post" action="/command">
+      <input type="hidden" name="returnTo" value="/">
+      <input type="hidden" name="command" value="server info">
+      <button type="submit" th:disabled="${!soapEnabled}">Server Info</button>
+    </form>
+  </section>
+
+  <section class="grid two">
+    <article>
+      <h2>Online Players</h2>
+      <table>
+        <thead><tr><th>Name</th><th>Account</th><th>Level</th><th>Class</th><th>Zone</th></tr></thead>
+        <tbody>
+        <tr th:each="player : ${view.onlinePlayers}">
+          <td th:text="${player.name}">Name</td>
+          <td th:text="${player.username}">Account</td>
+          <td th:text="${player.level}">80</td>
+          <td th:text="${classNames[player.class] ?: player.class}">Mage</td>
+          <td th:text="${player.zone}">0</td>
+        </tr>
+        <tr th:if="${#lists.isEmpty(view.onlinePlayers)}"><td colspan="5">No players are online.</td></tr>
+        </tbody>
+      </table>
+    </article>
+
+    <article>
+      <h2>Recent Accounts</h2>
+      <table>
+        <thead><tr><th>Username</th><th>GM</th><th>Online</th><th>Joined</th></tr></thead>
+        <tbody>
+        <tr th:each="account : ${view.recentAccounts}">
+          <td th:text="${account.username}">admin</td>
+          <td th:text="${account.gmlevel}">0</td>
+          <td th:text="${account.online}">0</td>
+          <td th:text="${account.joindate}">date</td>
+        </tr>
+        </tbody>
+      </table>
+    </article>
+  </section>
+</main>
+</body>
+</html>

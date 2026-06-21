@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Playerbots - WoW Admin</title>
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<header>
+  <h1>WoW Admin</h1>
+  <nav>
+    <a href="/">Dashboard</a>
+    <a href="/accounts">Accounts</a>
+    <a href="/characters">Characters</a>
+    <a class="active" href="/playerbots">Playerbots</a>
+    <a href="/playerbots/config">Config</a>
+  </nav>
+</header>
+
+<main>
+  <section th:if="${commandResult}" class="notice" th:classappend="${commandResult.success()} ? ' ok' : ' bad'">
+    <strong th:text="${commandResult.success()} ? 'Command sent' : 'Command failed'">Command</strong>
+    <span th:text="${commandResult.message()}"></span>
+  </section>
+
+  <section class="metrics">
+    <article><span>Random Bots</span><strong th:text="${view.totals.randomBots}">0</strong></article>
+    <article><span>Online Bots</span><strong th:text="${view.totals.onlineBots}">0</strong></article>
+    <article><span>Average Level</span><strong th:text="${view.totals.averageLevel}">0</strong></article>
+    <article><span>Highest Level</span><strong th:text="${view.totals.highestLevel}">0</strong></article>
+  </section>
+
+  <section class="toolbar">
+    <a class="button-link" href="/playerbots/config">View Config</a>
+    <form method="post" action="/playerbots/command" th:each="command : ${commands}">
+      <input type="hidden" name="command" th:value="${command}">
+      <button type="submit" th:disabled="${!soapEnabled}" th:text="${command}">playerbot rndbot stats</button>
+    </form>
+  </section>
+
+  <section class="grid two">
+    <article>
+      <h2>Level Bands</h2>
+      <table>
+        <thead><tr><th>Band</th><th>Bots</th></tr></thead>
+        <tbody>
+        <tr th:each="band : ${view.levelBands}">
+          <td th:text="${band.band}">70-80</td>
+          <td th:text="${band.total}">0</td>
+        </tr>
+        </tbody>
+      </table>
+    </article>
+    <article>
+      <h2>Class Breakdown</h2>
+      <table>
+        <thead><tr><th>Class</th><th>Bots</th><th>Avg Level</th></tr></thead>
+        <tbody>
+        <tr th:each="row : ${view.classBreakdown}">
+          <td th:text="${classNames[row.class] ?: row.class}">Mage</td>
+          <td th:text="${row.total}">0</td>
+          <td th:text="${row.averageLevel}">0</td>
+        </tr>
+        </tbody>
+      </table>
+    </article>
+  </section>
+
+  <section>
+    <h2>Bot Detail Sample</h2>
+    <table>
+      <thead><tr><th>Name</th><th>Level</th><th>Class</th><th>Zone</th><th>Map</th><th>Money</th><th>Online</th></tr></thead>
+      <tbody>
+      <tr th:each="bot : ${view.sampleBots}">
+        <td th:text="${bot.name}">Bot</td>
+        <td th:text="${bot.level}">80</td>
+        <td th:text="${classNames[bot.class] ?: bot.class}">Mage</td>
+        <td th:text="${bot.zone}">0</td>
+        <td th:text="${bot.map}">0</td>
+        <td th:text="${bot.money}">0</td>
+        <td th:text="${bot.online}">0</td>
+      </tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

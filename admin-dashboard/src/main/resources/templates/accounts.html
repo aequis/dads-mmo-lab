@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Accounts - WoW Admin</title>
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<header>
+  <h1>WoW Admin</h1>
+  <nav>
+    <a href="/">Dashboard</a>
+    <a class="active" href="/accounts">Accounts</a>
+    <a href="/characters">Characters</a>
+    <a href="/playerbots">Playerbots</a>
+    <a href="/playerbots/config">Config</a>
+  </nav>
+</header>
+
+<main>
+  <section th:if="${commandResult}" class="notice" th:classappend="${commandResult.success()} ? ' ok' : ' bad'">
+    <strong th:text="${commandResult.success()} ? 'Command sent' : 'Command failed'">Command</strong>
+    <span th:text="${commandResult.message()}"></span>
+  </section>
+
+  <section class="toolbar">
+    <form method="post" action="/accounts/create">
+      <input name="username" placeholder="username" th:disabled="${!soapEnabled}" required>
+      <input name="password" placeholder="password" type="password" th:disabled="${!soapEnabled}" required>
+      <select name="gmLevel" th:disabled="${!soapEnabled}">
+        <option value="0">Player</option>
+        <option value="1">GM 1</option>
+        <option value="2">GM 2</option>
+        <option value="3">GM 3</option>
+      </select>
+      <button type="submit" th:disabled="${!soapEnabled}">Create Account</button>
+    </form>
+  </section>
+
+  <section>
+    <h2>Accounts</h2>
+    <table>
+      <thead><tr><th>ID</th><th>Username</th><th>GM</th><th>Online</th><th>Locked</th><th>Last Login</th><th>Last IP</th></tr></thead>
+      <tbody>
+      <tr th:each="account : ${accounts}">
+        <td th:text="${account.id}">1</td>
+        <td th:text="${account.username}">admin</td>
+        <td th:text="${account.gmlevel}">0</td>
+        <td th:text="${account.online}">0</td>
+        <td th:text="${account.locked}">0</td>
+        <td th:text="${account.last_login}">date</td>
+        <td th:text="${account.last_ip}">127.0.0.1</td>
+      </tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

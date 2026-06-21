@@ -1,0 +1,304 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f6f7f4;
+  color: #17201b;
+}
+
+body {
+  margin: 0;
+}
+
+header {
+  align-items: center;
+  background: #111916;
+  color: #f5f2e8;
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  padding: 14px 28px;
+}
+
+h1 {
+  font-size: 20px;
+  margin: 0;
+}
+
+h2 {
+  font-size: 18px;
+  margin: 0 0 12px;
+}
+
+nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+nav a {
+  border-radius: 6px;
+  color: #d9dfd7;
+  padding: 8px 10px;
+  text-decoration: none;
+}
+
+nav a.active,
+nav a:hover {
+  background: #2f5f4b;
+  color: white;
+}
+
+main {
+  display: grid;
+  gap: 18px;
+  margin: 0 auto;
+  max-width: 1480px;
+  padding: 24px;
+}
+
+section,
+.metrics article {
+  background: white;
+  border: 1px solid #dce2d8;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(20, 30, 25, 0.06);
+  padding: 16px;
+}
+
+.metrics {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.metrics article {
+  display: grid;
+  gap: 8px;
+}
+
+.metrics span {
+  color: #607066;
+  font-size: 13px;
+}
+
+.metrics strong {
+  font-size: 30px;
+}
+
+.grid {
+  display: grid;
+  gap: 18px;
+}
+
+.grid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.toolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+input,
+select,
+button {
+  border: 1px solid #bfc9bd;
+  border-radius: 6px;
+  font: inherit;
+  min-height: 38px;
+  padding: 7px 10px;
+}
+
+input {
+  min-width: 280px;
+}
+
+button {
+  background: #255c48;
+  border-color: #255c48;
+  color: white;
+  cursor: pointer;
+}
+
+.button-link {
+  align-items: center;
+  background: #255c48;
+  border: 1px solid #255c48;
+  border-radius: 6px;
+  color: white;
+  display: inline-flex;
+  min-height: 38px;
+  padding: 7px 10px;
+  text-decoration: none;
+}
+
+button:disabled,
+input:disabled,
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+table {
+  border-collapse: collapse;
+  font-size: 14px;
+  width: 100%;
+}
+
+th,
+td {
+  border-bottom: 1px solid #e5e9e2;
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  color: #526158;
+  font-weight: 700;
+}
+
+.notice {
+  background: #fff7df;
+  border-color: #e6c35d;
+}
+
+.notice.ok {
+  background: #eaf7ee;
+  border-color: #7ac78d;
+}
+
+.notice.bad {
+  background: #fff0ee;
+  border-color: #d77a70;
+}
+
+code {
+  background: #edf1eb;
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
+.metric-path {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.pill {
+  background: #eaf7ee;
+  border: 1px solid #7ac78d;
+  border-radius: 999px;
+  color: #255c48;
+  display: inline-block;
+  font-size: 12px;
+  margin-left: 6px;
+  padding: 2px 6px;
+}
+
+.config-sections {
+  display: grid;
+  gap: 10px;
+}
+
+.config-section-block {
+  border: 1px solid #dce2d8;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.config-section-details summary {
+  align-items: center;
+  background: #f5f7f3;
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.config-section-details[open] summary {
+  border-bottom: 1px solid #dce2d8;
+}
+
+.config-section-details summary span {
+  font-weight: 700;
+}
+
+.config-section-details summary small {
+  color: #607066;
+  font-size: 13px;
+}
+
+.config-overrides {
+  border-top: 1px solid #dce2d8;
+}
+
+.config-section-details[open] + .config-overrides {
+  display: none;
+}
+
+.config-overrides .config-table {
+  background: #fbfcfa;
+}
+
+.config-table {
+  min-width: 1260px;
+  table-layout: fixed;
+}
+
+.config-option {
+  width: 29%;
+}
+
+.config-value {
+  width: 12%;
+}
+
+.config-env {
+  width: 27%;
+}
+
+.config-description {
+  width: 20%;
+}
+
+.config-table code {
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+.config-table td:nth-child(2),
+.config-table td:nth-child(5) {
+  font-size: 13px;
+}
+
+@media (max-width: 860px) {
+  header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .metrics,
+  .grid.two {
+    grid-template-columns: 1fr;
+  }
+
+  input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  table {
+    display: block;
+    overflow-x: auto;
+  }
+}

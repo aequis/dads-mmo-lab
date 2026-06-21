@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Playerbot Config - WoW Admin</title>
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<header>
+  <h1>WoW Admin</h1>
+  <nav>
+    <a href="/">Dashboard</a>
+    <a href="/accounts">Accounts</a>
+    <a href="/characters">Characters</a>
+    <a href="/playerbots">Playerbots</a>
+    <a class="active" href="/playerbots/config">Config</a>
+  </nav>
+</header>
+
+<main>
+  <section th:if="${config.error}" class="notice bad">
+    <strong>Config unavailable</strong>
+    <span th:text="${config.error}">No config found.</span>
+  </section>
+
+  <section class="metrics">
+    <article><span>Options</span><strong th:text="${#lists.size(config.options)}">0</strong></article>
+    <article><span>Overrides Visible</span><strong th:text="${config.overriddenCount}">0</strong></article>
+    <article><span>Source</span><strong class="metric-path" th:text="${config.sourcePath ?: 'not found'}">path</strong></article>
+  </section>
+
+  <section class="toolbar">
+    <input id="config-filter" type="search" placeholder="Filter options">
+    <a class="button-link" href="/playerbots">Back to Playerbots</a>
+  </section>
+
+  <section th:if="${config.sourcePath}" class="config-sections">
+    <h2>Playerbot Options</h2>
+    <article class="config-section-block"
+             th:each="section : ${config.sections}"
+             th:attr="data-filter=${#strings.toLowerCase(section.name)}">
+      <details class="config-section-details">
+        <summary>
+          <span th:text="${section.name}">General Settings</span>
+          <small>
+            <span th:text="${#lists.size(section.options)}">0</span> options
+            <span th:if="${section.hasOverrides()}">
+              &middot; <span th:text="${section.overriddenCount}">0</span> overridden
+            </span>
+          </small>
+        </summary>
+        <table class="config-table">
+          <colgroup>
+            <col class="config-option">
+            <col class="config-value">
+            <col class="config-value">
+            <col class="config-env">
+            <col class="config-description">
+          </colgroup>
+          <thead>
+          <tr>
+            <th>Option</th>
+            <th>Effective</th>
+            <th>Default</th>
+            <th>Override Env</th>
+            <th>Description</th>
+          </tr>
+          </thead>
+          <tbody>
+          <tr th:each="option : ${section.options}"
+              th:attr="data-filter=${#strings.toLowerCase(option.section + ' ' + option.key + ' ' + option.effectiveValue + ' ' + option.defaultValue + ' ' + option.primaryEnvName() + ' ' + option.description)}">
+            <td><code th:text="${option.key}">AiPlayerbot.Enabled</code></td>
+            <td>
+              <code th:text="${option.effectiveValue}">1</code>
+              <span th:if="${option.overridden()}" class="pill">override</span>
+            </td>
+            <td><code th:text="${option.defaultValue}">1</code></td>
+            <td>
+              <code th:text="${option.overrideEnv ?: option.primaryEnvName()}">AC_AI_PLAYERBOT_ENABLED</code>
+            </td>
+            <td th:text="${option.description}">Description</td>
+          </tr>
+          </tbody>
+        </table>
+      </details>
+
+      <div class="config-overrides" th:if="${section.hasOverrides()}">
+        <table class="config-table">
+          <colgroup>
+            <col class="config-option">
+            <col class="config-value">
+            <col class="config-value">
+            <col class="config-env">
+            <col class="config-description">
+          </colgroup>
+          <thead>
+          <tr>
+            <th>Option</th>
+            <th>Effective</th>
+            <th>Default</th>
+            <th>Override Env</th>
+            <th>Description</th>
+          </tr>
+          </thead>
+          <tbody>
+          <tr th:each="option : ${section.overriddenOptions()}"
+              th:attr="data-filter=${#strings.toLowerCase(option.section + ' ' + option.key + ' ' + option.effectiveValue + ' ' + option.defaultValue + ' ' + option.primaryEnvName() + ' ' + option.description)}">
+            <td><code th:text="${option.key}">AiPlayerbot.MinRandomBots</code></td>
+            <td>
+              <code th:text="${option.effectiveValue}">1600</code>
+              <span class="pill">override</span>
+            </td>
+            <td><code th:text="${option.defaultValue}">500</code></td>
+            <td><code th:text="${option.overrideEnv}">AC_AI_PLAYERBOT_MIN_RANDOM_BOTS</code></td>
+            <td th:text="${option.description}">Description</td>
+          </tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+  </section>
+
+  <section>
+    <h2>Searched Paths</h2>
+    <table>
+      <tbody>
+      <tr th:each="path : ${config.searchedPaths}">
+        <td><code th:text="${path}">/playerbots.conf.dist</code></td>
+      </tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+  const filter = document.getElementById('config-filter');
+  const sections = Array.from(document.querySelectorAll('.config-section-block'));
+  const rows = Array.from(document.querySelectorAll('.config-section-details tbody tr'));
+  const previewRows = Array.from(document.querySelectorAll('.config-overrides tbody tr'));
+  if (filter) {
+    filter.addEventListener('input', () => {
+      const query = filter.value.trim().toLowerCase();
+      rows.forEach((row) => {
+        row.hidden = query && !row.dataset.filter.includes(query);
+      });
+      previewRows.forEach((row) => {
+        row.hidden = query && !row.dataset.filter.includes(query);
+      });
+      sections.forEach((section) => {
+        const details = section.querySelector('.config-section-details');
+        const visibleRows = Array.from(section.querySelectorAll('.config-section-details tbody tr')).filter((row) => !row.hidden);
+        const visiblePreviewRows = Array.from(section.querySelectorAll('.config-overrides tbody tr')).filter((row) => !row.hidden);
+        const sectionMatches = query && section.dataset.filter.includes(query);
+        section.hidden = query && !sectionMatches && visibleRows.length === 0 && visiblePreviewRows.length === 0;
+        if (query) {
+          details.open = sectionMatches || visibleRows.length > 0;
+        } else {
+          details.open = false;
+        }
+      });
+    });
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+server:
+  port: ${SERVER_PORT:8090}
+
+spring:
+  application:
+    name: wow-admin-dashboard
+  security:
+    user:
+      name: ${WOW_ADMIN_DASHBOARD_USER:admin}
+      password: ${WOW_ADMIN_DASHBOARD_PASSWORD:${random.uuid}}
+  datasource:
+    url: ${WOW_ADMIN_JDBC_URL:jdbc:mysql://ac-database:3306/acore_auth?allowPublicKeyRetrieval=true&useSSL=false}
+    username: ${WOW_ADMIN_DB_USER:root}
+    password: ${WOW_ADMIN_DB_PASSWORD:password}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  thymeleaf:
+    cache: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+wow:
+  databases:
+    auth: ${WOW_ADMIN_AUTH_DB:acore_auth}
+    characters: ${WOW_ADMIN_CHARACTERS_DB:acore_characters}
+    playerbots: ${WOW_ADMIN_PLAYERBOTS_DB:acore_playerbots}
+  playerbots:
+    config-paths:
+      - ${WOW_ADMIN_PLAYERBOTS_CONFIG_PATH:/playerbots.conf.dist}
+      - /azerothcore/modules/mod-playerbots/conf/playerbots.conf.dist
+      - /azerothcore/env/dist/etc/modules/playerbots.conf.dist
+  soap:
+    url: ${WOW_ADMIN_SOAP_URL:http://ac-worldserver:7878/}
+    username: ${WOW_ADMIN_SOAP_USER:}
+    password: ${WOW_ADMIN_SOAP_PASSWORD:}
