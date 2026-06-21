@@ -200,11 +200,19 @@ Bots are tuned for a solo player. Settings in `docker-compose.override.yml`:
 | `AC_AI_PLAYERBOT_MIN_RANDOM_BOTS` | 1600 |
 | `AC_AI_PLAYERBOT_MAX_RANDOM_BOTS` | 2000 |
 | `AC_AI_PLAYERBOT_RANDOM_BOT_AUTOLOGIN` | 1 (enabled) |
+| `AC_AI_PLAYERBOT_ADD_CLASS_ACCOUNT_POOL_SIZE` | 50 accounts reserved for ready-made class bots |
+| `AC_AI_PLAYERBOT_ADD_CLASS_COMMAND` | 1 (players can use `.playerbots bot addclass`) |
+| `AC_AI_PLAYERBOT_SYNC_QUEST_WITH_PLAYER` | 1 (bots try to accept/turn in quests with the player) |
+| `AC_AI_PLAYERBOT_AUTO_DO_QUESTS` | 1 (bots may do quests automatically) |
+| `AC_QUESTS_IGNORE_AUTO_ACCEPT` | 1 (recommended with Playerbots quest sync) |
 
 To change these, edit `~/wow-server-playerbots/docker-compose.override.yml` and restart:
 ```bash
 cd ~/wow-server-playerbots && docker compose down && docker compose up -d
 ```
+
+For in-game bot commands, party control, altbot management, strategies, loot,
+questing, and troubleshooting, see [PLAYERBOTS-HOWTO.md](./PLAYERBOTS-HOWTO.md).
 
 ---
 
