@@ -94,6 +94,12 @@ Turns out — for a lot of classic MMOs — you can. The emulator community has 
 
 ## 📦 What's In This Repo
 
+### Shared WoW Guides
+
+| File | What it does |
+|------|-------------|
+| `guides/WoW-GM-HOWTO.md` | GM command reference for local Vanilla, TBC, WotLK, and Unbound servers |
+
 ### WoW Vanilla 1.12 (`guides/wow-vanilla/`)
 
 | File | What it does |
