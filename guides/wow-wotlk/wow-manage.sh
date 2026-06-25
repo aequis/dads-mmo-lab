@@ -32,6 +32,10 @@ MANAGER_VERSION="2.2.1 - ALE House Edition"
 
 set -o pipefail
 
+# Directory containing this script and patches
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PATCHES_DIR="$(cd "$SCRIPT_DIR/../../patches" 2>/dev/null && pwd)"
+
 RST='\033[0m'; BOLD='\033[1m'
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; WHITE='\033[1;37m'; CYAN='\033[0;36m'
@@ -361,11 +365,15 @@ print_success() { echo -e "${GREEN}✅ $1${RST}"; }
 print_warning() { echo -e "${YELLOW}⚠️  $1${RST}"; }
 print_error()   { echo -e "${RED}❌ $1${RST}"; }
 print_info()    { echo -e "${BLUE}ℹ️  $1${RST}"; }
+lower()         { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 ask_yes_no() {
     while true; do
         printf "${WHITE}$1 (y/n): ${RST}"
-        read -r answer
+        if ! read -r answer; then
+            echo ""
+            return 1
+        fi
         case $answer in
             [Yy]*) return 0 ;;
             [Nn]*) return 1 ;;
@@ -398,6 +406,7 @@ _offer_npc_in_capitals() {
     # Deterministic slot per known entry; unknown entries use session counter
     local slot
     case "$npc_entry" in
+        90100)   slot=0 ;;
         190010)  slot=0 ;;
         999991)  slot=1 ;;
         601026)  slot=2 ;;
@@ -415,19 +424,107 @@ _offer_npc_in_capitals() {
     echo ""
     print_info "📍 $npc_name (entry $npc_entry) is in the database but not yet placed in the world."
     [ -n "$timing_note" ] && print_info "   $timing_note"
+    print_info "Run these in-game as a GM character. AzerothCore's .npc add uses your current position."
     echo ""
     echo -e "  ${GOLD}Stormwind, Alliance (map 0):${RST}"
-    echo -e "  ${WHITE}In-game GM:${RST}  ${CYAN}.npc add $npc_entry 0 $sw_x $sw_y 94.1 3.7${RST}"
-    echo -e "  ${WHITE}WS console:${RST}  ${CYAN}npc add $npc_entry 0 $sw_x $sw_y 94.1 3.7${RST}"
+    echo -e "  ${WHITE}In-game GM:${RST}  ${CYAN}.go xyz $sw_x $sw_y 94.1 0 3.7${RST}"
+    echo -e "               ${CYAN}.npc add $npc_entry${RST}"
     echo ""
     echo -e "  ${GOLD}Orgrimmar, Horde (map 1):${RST}"
-    echo -e "  ${WHITE}In-game GM:${RST}  ${CYAN}.npc add $npc_entry 1 $og_x $og_y 17.5 4.5${RST}"
-    echo -e "  ${WHITE}WS console:${RST}  ${CYAN}npc add $npc_entry 1 $og_x $og_y 17.5 4.5${RST}"
+    echo -e "  ${WHITE}In-game GM:${RST}  ${CYAN}.go xyz $og_x $og_y 17.5 1 4.5${RST}"
+    echo -e "               ${CYAN}.npc add $npc_entry${RST}"
     echo ""
-    print_info "Access the worldserver console via option 13 from the main menu."
     print_info "If the NPC lands in a bad spot, use .npc delete (in-game) or"
-    print_info "npc delete (console) then re-place with your own coordinates."
+    print_info "move yourself to a better spot and run .npc add $npc_entry again."
     echo ""
+}
+
+_place_npc_in_capitals_db() {
+    local npc_entry="$1"
+    local npc_name="$2"
+    local timing_note="${3:-}"
+
+    refresh_container_names
+    if ! container_running "$DB_CONTAINER"; then
+        print_warning "Database container is not running, so automatic NPC placement is unavailable."
+        return 1
+    fi
+
+    local slot
+    case "$npc_entry" in
+        90100)   slot=0 ;;
+        190010)  slot=0 ;;
+        999991)  slot=1 ;;
+        601026)  slot=2 ;;
+        *)       slot="${_NPC_SPAWN_IDX:-0}" ;;
+    esac
+    _NPC_SPAWN_IDX=$((_NPC_SPAWN_IDX + 1))
+
+    local sw_x sw_y og_x og_y
+    sw_x=$(LC_ALL=C awk -v s="$slot" 'BEGIN{printf "%.1f", -8831.3 + s*3}')
+    sw_y=$(LC_ALL=C awk -v s="$slot" 'BEGIN{printf "%.1f",   628.2 + s*2}')
+    og_x=$(LC_ALL=C awk -v s="$slot" 'BEGIN{printf "%.1f",  1597.2 + s*3}')
+    og_y=$(LC_ALL=C awk -v s="$slot" 'BEGIN{printf "%.1f", -4415.7 + s*2}')
+
+    local comment_prefix="dads-mmo-lab auto-place: $npc_name"
+    local sql
+    sql=$(cat <<SQL
+SET @entry := ${npc_entry};
+SET @exists := (SELECT COUNT(*) FROM creature_template WHERE entry = @entry);
+DELETE FROM creature
+WHERE id1 = @entry
+  AND Comment LIKE 'dads-mmo-lab auto-place:%';
+INSERT INTO creature
+  (id1, map, zoneId, areaId, spawnMask, phaseMask, equipment_id,
+   position_x, position_y, position_z, orientation,
+   spawntimesecs, wander_distance, MovementType, VerifiedBuild, CreateObject, Comment)
+SELECT @entry, 0, 1519, 5148, 1, 1, 0,
+       ${sw_x}, ${sw_y}, 94.1, 3.7,
+       120, 0, 0, 0, 0, '${comment_prefix} - Stormwind'
+WHERE @exists > 0;
+INSERT INTO creature
+  (id1, map, zoneId, areaId, spawnMask, phaseMask, equipment_id,
+   position_x, position_y, position_z, orientation,
+   spawntimesecs, wander_distance, MovementType, VerifiedBuild, CreateObject, Comment)
+SELECT @entry, 1, 1637, 5170, 1, 1, 0,
+       ${og_x}, ${og_y}, 17.5, 4.5,
+       120, 0, 0, 0, 0, '${comment_prefix} - Orgrimmar'
+WHERE @exists > 0;
+SQL
+)
+
+    print_info "Automatically placing $npc_name in Stormwind and Orgrimmar..."
+    local out rc
+    out=$(docker exec "$DB_CONTAINER" mysql -uroot -p"$DB_ROOT_PASSWORD" -N acore_world -e "$sql" 2>&1)
+    rc=$?
+    if [ $rc -ne 0 ] || echo "$out" | grep -qi "^ERROR"; then
+        print_warning "Automatic placement failed."
+        print_info "$out"
+        return 1
+    fi
+
+    local count
+    count=$(docker exec "$DB_CONTAINER" mysql -uroot -p"$DB_ROOT_PASSWORD" -N acore_world -e \
+        "SELECT COUNT(*) FROM creature WHERE id1=${npc_entry} AND Comment LIKE 'dads-mmo-lab auto-place:%';" 2>/dev/null | tail -1)
+    if [ "${count:-0}" -lt 2 ]; then
+        print_warning "Automatic placement did not create both spawns. The NPC template may not be loaded yet."
+        [ -n "$timing_note" ] && print_info "$timing_note"
+        return 1
+    fi
+
+    print_success "$npc_name placed in Stormwind and Orgrimmar."
+    if [ -n "$WORLD_CONTAINER" ] && container_running "$WORLD_CONTAINER"; then
+        if ask_yes_no "Restart the worldserver now so the new spawns appear?"; then
+            docker restart "$WORLD_CONTAINER" >/dev/null && \
+                print_success "Worldserver restarted — the NPC should be visible in both capitals." || \
+                print_warning "Worldserver restart failed. Restart it from the main menu before checking in-game."
+        else
+            print_info "Restart the worldserver later before checking in-game."
+        fi
+    else
+        print_info "Start or restart the worldserver before checking in-game."
+    fi
+    return 0
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -451,9 +548,9 @@ _cmd_block_for() {
                 '.q1v1 unrated            — Queue for an unrated 1v1 arena match' \
                 '.q1v1 stats              — View your personal 1v1 win/loss statistics' \
                 '' \
-                'NPC Spawn Commands (worldserver console; prefix with . for in-game GM):' \
-                'npc add 999991 0 -8828.3 630.2 94.1 3.7   — Stormwind Arena Battlemaster (Alliance)' \
-                'npc add 999991 1 1600.2 -4413.7 17.5 4.5  — Orgrimmar Arena Battlemaster (Horde)'
+                'NPC Spawn Commands (in-game GM):' \
+                '.go xyz -8828.3 630.2 94.1 0 3.7; then .npc add 999991  — Stormwind Arena Battlemaster (Alliance)' \
+                '.go xyz 1600.2 -4413.7 17.5 1 4.5; then .npc add 999991  — Orgrimmar Arena Battlemaster (Horde)'
             ;;
         mod-arac)
             printf '%s\n' \
@@ -483,7 +580,7 @@ _cmd_block_for() {
                 '[GM] .dm end              — Force-end active session' \
                 '[GM] .dm clearcooldown    — Clear per-character run cooldown' \
                 '' \
-                'NPC Spawn Commands (worldserver console; prefix with . for in-game GM):' \
+                'NPC Spawn Commands (in-game GM):' \
                 'npc add 500000            — Dungeon Master NPC (auto-placed in all capitals at start)'
             ;;
         mod-ah-bot)
@@ -554,9 +651,9 @@ _cmd_block_for() {
                 '[GM] .transmog check     — Check transmog database integrity' \
                 '[GM] .transmog reload    — Reload transmog script' \
                 '' \
-                'NPC Spawn Commands (worldserver console; prefix with . for in-game GM):' \
-                'npc add 190010 0 -8831.3 628.2 94.1 3.7   — Transmogrifier NPC, Stormwind (Alliance)' \
-                'npc add 190010 1 1597.2 -4415.7 17.5 4.5  — Transmogrifier NPC, Orgrimmar (Horde)'
+                'NPC Spawn Commands (in-game GM):' \
+                '.go xyz -8831.3 628.2 94.1 0 3.7; then .npc add 190010  — Transmogrifier NPC, Stormwind (Alliance)' \
+                '.go xyz 1597.2 -4415.7 17.5 1 4.5; then .npc add 190010  — Transmogrifier NPC, Orgrimmar (Horde)'
             ;;
         mod-talentbutton)
             printf '%s\n' \
@@ -596,9 +693,9 @@ _cmd_block_for() {
                 '.petname rename <name>   — Rename your current pet' \
                 '.petname cancel          — Cancel a pending pet rename' \
                 '' \
-                'NPC Spawn Commands (worldserver console; prefix with . for in-game GM):' \
-                'npc add 601026 0 -8825.3 632.2 94.1 3.7   — White Fang (Beastmaster), Stormwind (Alliance)' \
-                'npc add 601026 1 1603.2 -4411.7 17.5 4.5  — White Fang (Beastmaster), Orgrimmar (Horde)'
+                'NPC Spawn Commands (in-game GM):' \
+                '.go xyz -8825.3 632.2 94.1 0 3.7; then .npc add 601026  — White Fang (Beastmaster), Stormwind (Alliance)' \
+                '.go xyz 1603.2 -4411.7 17.5 1 4.5; then .npc add 601026  — White Fang (Beastmaster), Orgrimmar (Horde)'
             ;;
         mod-quest-loot-party)
             printf '%s\n' \
@@ -654,9 +751,9 @@ _cmd_block_for() {
                 '[GM] .bpadmin reload                    — Reload Battle Pass config' \
                 '[GM] .bpadmin stats                     — Show server-wide stats' \
                 '' \
-                'NPC Spawn Commands (worldserver console; prefix with . for in-game GM):' \
-                'npc add 90100 0 -8819.3 636.2 94.1 3.7   — Battle Pass NPC, Stormwind (Alliance)' \
-                'npc add 90100 1 1609.2 -4407.7 17.5 4.5  — Battle Pass NPC, Orgrimmar (Horde)'
+                'NPC Spawn Commands (in-game GM):' \
+                '.go xyz -8831.3 628.2 94.1 0 3.7; then .npc add 90100  — Battle Pass NPC, Stormwind (Alliance)' \
+                '.go xyz 1597.2 -4415.7 17.5 1 4.5; then .npc add 90100  — Battle Pass NPC, Orgrimmar (Horde)'
             ;;
         paragon)
             printf '%s\n' \
@@ -673,9 +770,9 @@ _cmd_block_for() {
                 '' \
                 'Commands: (none — all interaction is through the NPC gossip menu)' \
                 '' \
-                'NPC Spawn Commands (worldserver console; prefix with . for in-game GM):' \
-                'npc add 2069430 0 -8816.3 638.2 94.1 3.7   — Black Market AH Auctioneer, Stormwind (Alliance)' \
-                'npc add 2069430 1 1612.2 -4405.7 17.5 4.5  — Black Market AH Auctioneer, Orgrimmar (Horde)'
+                'NPC Spawn Commands (in-game GM):' \
+                '.go xyz -8816.3 638.2 94.1 0 3.7; then .npc add 2069430  — Black Market AH Auctioneer, Stormwind (Alliance)' \
+                '.go xyz 1612.2 -4405.7 17.5 1 4.5; then .npc add 2069430  — Black Market AH Auctioneer, Orgrimmar (Horde)'
             ;;
         lootpet)
             printf '%s\n' \
@@ -733,6 +830,13 @@ _cmd_block_for() {
                 '' \
                 'Commands:' \
                 '.ua                      — Enable unlimited ammo for yourself (current session only; no .ua off)'
+            ;;
+        noxppenalty)
+            printf '%s\n' \
+                'No Party XP Penalty (ALE)' \
+                'Removes the group XP reduction so each player receives full solo-equivalent kill XP while in a party. Uses 1.05 exponential scaling for mobs above the player'"'"'s level and caps each kill at 1/10 of the XP required for the current level (minimum 10 kills to level). Sourced from the Dad'"'"'s MMO Lab ALE-Kegs collection.' \
+                '' \
+                'Commands: (none — applied automatically to all grouped kill XP)'
             ;;
         portals-capitals)
             printf '%s\n' \
@@ -873,7 +977,7 @@ _rebuild_npc_spawn_header() {
     {
         printf '%s\n' "$header_marker"
         printf '%s\n' "Consolidated NPC spawn commands for all installed mods that require NPCs."
-        printf '%s\n' "  Worldserver console: npc add <entry> ...   |   In-game GM: .npc add <entry> ..."
+        printf '%s\n' "  In-game GM: stand where the NPC should appear, then run .npc add <entry>."
         printf '\n'
         local prev_section=""
         for entry in "${spawn_entries[@]}"; do
@@ -1023,7 +1127,7 @@ declare -a MODULE_REGISTRY=(
     "mod-ale|AzerothCore Lua Engine (ALE)|https://github.com/azerothcore/mod-ale.git|"
     "mod-player-bot-level-brackets|Bot Level Brackets (Playerbot distribution)|https://github.com/DustinHendrickson/mod-player-bot-level-brackets.git|characters"
     "mod-challenge-modes|Challenge Modes (Hardcore, Iron Man, etc.)|https://github.com/nl-saw/mod-challenge-modes.git|world,characters"
-    "mod-individual-progression|Individual Progression (Vanilla → TBC → WotLK)|https://github.com/ZhengPeiRu21/mod-individual-progression.git|world,characters"
+    "mod-individual-progression|Individual Progression (Vanilla → TBC → WotLK)|https://github.com/Grimfeather/mod-individual-progression.git|world,characters"
     "mod-junk-to-gold|Junk to Gold (auto-sell gray items)|https://github.com/noisiver/mod-junk-to-gold.git|world"
     "mod-learn-spells|Learn Spells on Levelup|https://github.com/azerothcore/mod-learn-spells.git|world"
     "mod-npc-beastmaster|NPC Beastmaster (pets for all classes)|https://github.com/azerothcore/mod-npc-beastmaster.git|world,characters"
@@ -1597,10 +1701,11 @@ declare -a ALE_SCRIPT_REGISTRY=(
     "activechat|Azeroth Chatter (lore-grounded ambient world RP chat)|https://github.com/svey-xyz/ActiveChat.git"
     "battlepass|Battle Pass System (XP progression + rewards + client addon)|https://github.com/Shonik/lua-battlepass.git"
     "bmah|Black Market Auction House (MoP-style BMAH + client addon)|https://github.com/DadsMmoLab/dads-mmo-lab.git"
-    "lootpet|Loot Pet (vanity pet auto-loots nearby corpses)|https://github.com/Brytenwally/Lootpet.git"
+    "lootpet|Loot Pet (vanity pet auto-loots nearby corpses)|https://github.com/aequis/Lootpet.git"
     "paragon|Paragon Anniversary (endless post-80 stat progression + client addon)|https://github.com/Grim-Batol/Paragon-Anniversary.git"
     "sitmeanrest|Sit Means Rest (regen buff on /sit; strips on movement)|https://github.com/Brytenwally/SitMeansRest.git"
     "sod|Season of Discovery Buffs (phased leveling XP rate bonus)|https://github.com/DadsMmoLab/dads-mmo-lab.git"
+    "noxppenalty|No Party XP Penalty (full solo XP in groups)|https://github.com/aequis/wow-noxppenalty.git"
     "unlimitedammo|Unlimited Ammo (auto-refills Hunter arrows/bullets)|https://github.com/Day36512/Acore_Lua_Unlimited_Ammo.git"
 )
 
@@ -1795,7 +1900,7 @@ repair_module() {
     while [ -z "$mode" ]; do
         printf "${WHITE}Choice [M/C]: ${RST}"
         read -r mode
-        case "${mode,,}" in
+        case "$(lower "$mode")" in
             m) mode="mark" ;;
             c) mode="clear" ;;
             *) mode=""; echo "Please enter M or C." ;;
@@ -1934,7 +2039,7 @@ repair_install_state() {
     printf "${WHITE}Choice: ${RST}"
     read -r choice
 
-    case "${choice,,}" in
+    case "$(lower "$choice")" in
         "")
             return 0
             ;;
@@ -2048,6 +2153,37 @@ module_remove() {
             print_info " them risks data loss and they're harmless to leave.)"
         fi
     fi
+}
+
+# ─────────────────────────────────────────────────────────────
+# PATCH APPLICATION
+# ─────────────────────────────────────────────────────────────
+# Apply patches from the patches/ directory using unified diff format.
+# Falls back gracefully if patches are already applied or don't match.
+
+apply_patch_file() {
+    local patch_file="$1"
+    local target_dir="$2"
+
+    if [ ! -f "$patch_file" ]; then
+        print_warning "Patch file not found: $patch_file"
+        return 1
+    fi
+
+    # Try to apply the patch (--forward skips already-applied hunks)
+    if patch -d "$target_dir" -p1 --forward --silent < "$patch_file" 2>/dev/null; then
+        print_success "Applied patch: $(basename "$patch_file")"
+        return 0
+    fi
+
+    # Check if already applied by trying reverse
+    if patch -d "$target_dir" -p1 --reverse --dry-run --silent < "$patch_file" 2>/dev/null; then
+        print_info "Patch already applied: $(basename "$patch_file")"
+        return 0
+    fi
+
+    print_warning "Patch may not have applied cleanly: $(basename "$patch_file")"
+    return 1
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -2660,6 +2796,20 @@ ale_script_clone_dir()    { echo "$SERVER_DIR/ale_scripts/$1"; }
 ale_script_is_installed() { [ -d "$SERVER_DIR/ale_scripts/$1/.git" ]; }
 ale_lua_scripts_dir()     { echo "$SERVER_DIR/env/dist/etc/modules/lua_scripts"; }
 
+patch_ale_paragon_compat() {
+    local paragon_dir="$1"
+    local patch_script="$PATCHES_DIR/paragon/apply-paragon-ale-compat.sh"
+
+    if [ -f "$patch_script" ]; then
+        # Source the patch script and call the function
+        # shellcheck source=/dev/null
+        source "$patch_script"
+        apply_paragon_ale_compat "$paragon_dir"
+    else
+        print_warning "Paragon patch script not found: $patch_script"
+    fi
+}
+
 # Check whether a script's Lua files are present in the lua_scripts deploy dir.
 # Uses the same per-key path knowledge as ale_deploy_lua_files().
 ale_lua_is_deployed() {
@@ -2675,6 +2825,7 @@ ale_lua_is_deployed() {
         bmah)          [ -f "$lua_dir/BMAH.lua" ] ;;
         lootpet)       [ -f "$lua_dir/LootPet.lua" ] ;;
         sod)           [ -f "$lua_dir/SOD.lua" ] ;;
+        noxppenalty)    [ -f "$lua_dir/NoPartyXPPenalty.lua" ] ;;
         sitmeanrest)   [ -f "$lua_dir/SitMeansRest.lua" ] ;;
         unlimitedammo) [ -f "$lua_dir/UnlimitedAmmo.lua" ] ;;
         *)             false ;;
@@ -3291,8 +3442,11 @@ configure_ale_bmah() {
     echo ""
     print_step "Black Market AH — Spawn the Broker NPC"
     echo -e "${WHITE}The BMAH broker NPC (entry 2069430) must be placed in the world.${RST}"
-    _offer_npc_in_capitals 2069430 "Black Market Broker" \
-        "Run after restarting the worldserver."
+    if ! _place_npc_in_capitals_db 2069430 "Black Market Broker" \
+        "Run after restarting the worldserver."; then
+        _offer_npc_in_capitals 2069430 "Black Market Broker" \
+            "Run after restarting the worldserver."
+    fi
 
     # ── Pricing & timing reference ────────────────────────────
     echo ""
@@ -3581,6 +3735,20 @@ configure_ale_activechat() {
     fi
     print_info "Run ${CYAN}.reload ale${RST} in-game to apply."
 }
+
+patch_ale_battlepass_playerbot_guard() {
+    local bp_dir="${1:-$(ale_lua_scripts_dir)/battlepass}"
+    local patch_script="$PATCHES_DIR/battlepass/apply-battlepass-playerbot-guard.sh"
+
+    if [ -f "$patch_script" ]; then
+        # Source the patch script and call the function
+        # shellcheck source=/dev/null
+        source "$patch_script"
+        apply_battlepass_playerbot_guard "$bp_dir"
+    else
+        print_warning "BattlePass patch script not found: $patch_script"
+    fi
+}
 # ── Lua file deployment (per-script copy strategy) ───────────
 # Each script has its own repo layout; this handles the mapping.
 ale_deploy_lua_files() {
@@ -3646,6 +3814,7 @@ ale_deploy_lua_files() {
                     sed -i 's|^require("lib\.CSMH\.CSMH_SMH")|-- require removed: CSMH_SMH.ext is auto-loaded by ALE before .lua scripts run|' "$_comm"
                     print_success "Patched 05_BP_Communication.lua — removed duplicate require (double-load fix)"
                 fi
+                patch_ale_battlepass_playerbot_guard "$lua_dir/battlepass"
             else
                 print_warning "lua_scripts/ dir not found in clone — check $clone_dir manually."
             fi
@@ -3657,6 +3826,7 @@ ale_deploy_lua_files() {
                 cp -r "$src" "$lua_dir/" && \
                     print_success "Deployed → lua_scripts/paragon/" || \
                     print_warning "Copy failed — check $src"
+                patch_ale_paragon_compat "$lua_dir/paragon"
             else
                 print_warning "Expected directory not found: $src"
                 print_info "Manually copy paragon/ contents to: $lua_dir/paragon/"
@@ -3697,6 +3867,15 @@ ale_deploy_lua_files() {
                 fi
             else
                 print_warning "SOD.lua not found at expected path: $sod_src"
+            fi
+            ;;
+        noxppenalty)
+            if [ -f "$clone_dir/NoPartyXPPenalty.lua" ]; then
+                cp "$clone_dir/NoPartyXPPenalty.lua" "$lua_dir/" && \
+                    print_success "Deployed NoPartyXPPenalty.lua → lua_scripts/" || \
+                    print_warning "Copy failed"
+            else
+                print_warning "NoPartyXPPenalty.lua not found in $clone_dir"
             fi
             ;;
         sitmeanrest)
@@ -3845,9 +4024,22 @@ ale_script_install() {
                 fix_battlepass_npc
             fi
             echo ""
-            print_info "Battle Pass Ticker (entry 90100) needs to be placed in the world."
-            _offer_npc_in_capitals 90100 "Battle Pass Ticker" \
-                "Run after reloading ALE scripts or restarting the worldserver."
+            refresh_container_names
+            local _bp_spawn_count=""
+            if container_running "$DB_CONTAINER"; then
+                _bp_spawn_count=$(docker exec "$DB_CONTAINER" mysql -uroot -p"$DB_ROOT_PASSWORD" -N acore_world -e \
+                    "SELECT COUNT(*) FROM creature WHERE id1=90100 AND Comment LIKE 'dads-mmo-lab auto-place:%';" 2>/dev/null | tail -1)
+            fi
+            if [ "${_bp_spawn_count:-0}" -ge 2 ]; then
+                print_success "Battle Pass Vendor is placed in Stormwind and Orgrimmar."
+            else
+                print_info "Battle Pass Ticker (entry 90100) needs to be placed in the world."
+                if ! _place_npc_in_capitals_db 90100 "Battle Pass Ticker" \
+                    "Run after reloading ALE scripts or restarting the worldserver."; then
+                    _offer_npc_in_capitals 90100 "Battle Pass Ticker" \
+                        "Run after reloading ALE scripts or restarting the worldserver."
+                fi
+            fi
             ;;
         paragon)
             echo ""
@@ -3905,8 +4097,11 @@ ale_script_install() {
             fi
             echo ""
             print_info "Black Market AH Auctioneer (entry 2069430) needs to be placed in the world."
-            _offer_npc_in_capitals 2069430 "Black Market AH Auctioneer" \
-                "Only works AFTER worldserver restart post-SQL. Use 'bmah_diag' whisper to verify state."
+            if ! _place_npc_in_capitals_db 2069430 "Black Market AH Auctioneer" \
+                "Only works AFTER worldserver restart post-SQL. Use 'bmah_diag' whisper to verify state."; then
+                _offer_npc_in_capitals 2069430 "Black Market AH Auctioneer" \
+                    "Only works AFTER worldserver restart post-SQL. Use 'bmah_diag' whisper to verify state."
+            fi
             ;;
         sod)
             echo ""
@@ -4026,6 +4221,7 @@ ale_script_remove() {
         paragon)     deployed_hint="$lua_dir/paragon/" ;;
         bmah)        deployed_hint="$lua_dir/BMAH.lua" ;;
         lootpet)     deployed_hint="$lua_dir/LootPet.lua" ;;
+        noxppenalty) deployed_hint="$lua_dir/NoPartyXPPenalty.lua" ;;
         sitmeanrest)  deployed_hint="$lua_dir/SitMeansRest.lua" ;;
         sod)         deployed_hint="$lua_dir/SOD.lua" ;;
         unlimitedammo) deployed_hint="$lua_dir/UnlimitedAmmo.lua" ;;
@@ -4042,6 +4238,7 @@ ale_script_remove() {
             paragon)     rm -rf "$lua_dir/paragon" ;;
             bmah)        rm -f  "$lua_dir/BMAH.lua" ;;
             lootpet)     rm -f  "$lua_dir/LootPet.lua" ;;
+            noxppenalty)   rm -f "$lua_dir/NoPartyXPPenalty.lua" ;;
             sitmeanrest)   rm -f "$lua_dir/SitMeansRest.lua" ;;
             sod)           rm -f "$lua_dir/SOD.lua" ;;
             unlimitedammo) rm -f "$lua_dir/UnlimitedAmmo.lua" ;;
@@ -5147,6 +5344,17 @@ _get_about_text() {
                 'Duration and regen spell ID are configurable in the CONFIG' \
                 'table at the top of SitMeansRest.lua.'
             ;;
+        noxppenalty)
+            printf '%s\n' \
+                'Removes the group kill XP penalty so each player earns full' \
+                'solo-equivalent XP while in a party. Mobs above the player'"'"'s' \
+                'level use 1.05 exponential scaling (uncapped) instead of the' \
+                'vanilla +4 cap. Per-kill XP is capped at 1/10 of the level' \
+                'requirement — minimum 10 kills to level regardless of mob' \
+                'level. Only affects kill XP in groups; solo, quest, and' \
+                'exploration XP are untouched. EXP_BASE constant at the top' \
+                'of the script is configurable.'
+            ;;
         unlimitedammo)
             printf '%s\n' \
                 'Automatically refills Hunter ammo (arrows or bullets) when' \
@@ -5346,8 +5554,9 @@ menu_ale_scripts() {
         [ "$total_pages" -gt 1 ] && page_hint="   ${WHITE}< >${RST} Page"
         printf "  ${WHITE}i<num>${RST} Install   ${WHITE}r<num>${RST} Remove   ${WHITE}c<num>${RST} Config   ${WHITE}?<num>${RST} About${page_hint}   ${WHITE}ENTER${RST} Back\n"
 
-        if ! _read_menu_input "$(( tlines - 1 ))"; then
-            local _read_rc=$?
+        _read_menu_input "$(( tlines - 1 ))"
+        local _read_rc=$?
+        if [ "$_read_rc" -ne 0 ]; then
             [ "$_read_rc" -eq 2 ] && continue
             return
         fi
@@ -5359,7 +5568,7 @@ menu_ale_scripts() {
         action="${raw_choice:0:1}"
         nums="${raw_choice:1}"
 
-        case "${action,,}" in
+        case "$(lower "$action")" in
             '<')
                 page_start=$(( page_start - page_size ))
                 [ "$page_start" -lt 0 ] && page_start=0
@@ -5445,22 +5654,12 @@ _module_post_install_hook() {
         mod-challenge-modes)
             echo ""
             # Patch: newer AzerothCore changed the OnPlayerResurrect hook signature.
-            # The nl-saw fork has the old signature (bool instead of bool&, named params).
-            # Both occurrences must be commented-out to match the current AC API.
             local _cm_dir="$SERVER_DIR/modules/mod-challenge-modes"
-            local _cm_src="$_cm_dir/src/ChallengeModes.cpp"
-            if [ -f "$_cm_src" ] && grep -q "float restore_percent, bool applySickness" "$_cm_src"; then
-                print_step "Patching OnPlayerResurrect signature in ChallengeModes.cpp..."
-                sed -i 's/float restore_percent, bool applySickness/float \/*restore_percent*\/, bool\& \/*applySickness*\//g' "$_cm_src"
-                local _patch_count
-                _patch_count=$(grep -c "bool& /\*applySickness\*/" "$_cm_src" 2>/dev/null || echo "0")
-                if [ "$_patch_count" -ge 1 ]; then
-                    print_success "Patched $_patch_count occurrence(s) — module now matches current AC API."
-                else
-                    print_warning "Patch may not have applied cleanly — verify ChallengeModes.cpp manually."
-                    print_info "Lines 448 and 641: change 'float restore_percent, bool applySickness'"
-                    print_info "  to: 'float /*restore_percent*/, bool& /*applySickness*/'"
-                fi
+            local _cm_patch="$PATCHES_DIR/challenge-modes/apply-challenge-modes-resurrect-api.sh"
+            if [ -f "$_cm_patch" ]; then
+                # shellcheck source=/dev/null
+                source "$_cm_patch"
+                apply_challenge_modes_resurrect_api "$_cm_dir"
             fi
             echo ""
             print_info "Challenge Modes has a conf file and requires EnablePlayerSettings = 1."
@@ -5481,8 +5680,11 @@ _module_post_install_hook() {
             echo ""
             print_info "Players can summon the Beastmaster NPC anywhere via .beastmaster."
             print_info "You can also permanently place it in capital cities."
-            _offer_npc_in_capitals 601026 "White Fang (Beastmaster NPC)" \
-                "Run these commands after rebuilding and starting the worldserver."
+            if ! _place_npc_in_capitals_db 601026 "White Fang (Beastmaster NPC)" \
+                "Run these commands after rebuilding and starting the worldserver."; then
+                _offer_npc_in_capitals 601026 "White Fang (Beastmaster NPC)" \
+                    "Run these commands after rebuilding and starting the worldserver."
+            fi
             ;;
         mod-quest-loot-party)
             echo ""
@@ -5492,15 +5694,21 @@ _module_post_install_hook() {
             ;;
         mod-transmog)
             echo ""
-            print_info "Transmogrification adds NPC entry 190010 — it must be manually placed in the world."
-            _offer_npc_in_capitals 190010 "Transmogrifier NPC" \
-                "Run these commands after rebuilding and starting the worldserver."
+            print_info "Transmogrification adds NPC entry 190010 — it needs to be placed in the world."
+            if ! _place_npc_in_capitals_db 190010 "Transmogrifier NPC" \
+                "Run these commands after rebuilding and starting the worldserver."; then
+                _offer_npc_in_capitals 190010 "Transmogrifier NPC" \
+                    "Run these commands after rebuilding and starting the worldserver."
+            fi
             ;;
         mod-1v1-arena)
             echo ""
-            print_info "1v1 Arena adds a Battlemaster NPC (entry 999991) — it must be manually placed in the world."
-            _offer_npc_in_capitals 999991 "Arena Battlemaster 1v1" \
-                "Run these commands after rebuilding and starting the worldserver."
+            print_info "1v1 Arena adds a Battlemaster NPC (entry 999991) — it needs to be placed in the world."
+            if ! _place_npc_in_capitals_db 999991 "Arena Battlemaster 1v1" \
+                "Run these commands after rebuilding and starting the worldserver."; then
+                _offer_npc_in_capitals 999991 "Arena Battlemaster 1v1" \
+                    "Run these commands after rebuilding and starting the worldserver."
+            fi
             ;;
         mod-arac)
             echo ""
@@ -5643,8 +5851,9 @@ menu_modules() {
         [ "$total_pages" -gt 1 ] && page_hint="   ${WHITE}< >${RST} Page"
         printf "  ${WHITE}i<num>${RST} Install   ${WHITE}r<num>${RST} Remove   ${WHITE}c<num>${RST} Config   ${WHITE}?<num>${RST} About${page_hint}   ${WHITE}ENTER${RST} Back\n"
 
-        if ! _read_menu_input "$(( tlines - 1 ))"; then
-            local _read_rc=$?
+        _read_menu_input "$(( tlines - 1 ))"
+        local _read_rc=$?
+        if [ "$_read_rc" -ne 0 ]; then
             [ "$_read_rc" -eq 2 ] && continue
             return
         fi
@@ -5657,7 +5866,7 @@ menu_modules() {
         nums="${raw_choice:1}"
         nums="${nums# }"
 
-        case "${action,,}" in
+        case "$(lower "$action")" in
             '<')
                 page_start=$(( page_start - page_size ))
                 [ "$page_start" -lt 0 ] && page_start=0
@@ -6036,8 +6245,9 @@ menu_module_management() {
         [ "$total_pages" -gt 1 ] && page_hint="   ${WHITE}< >${RST} Page"
         printf "  ${WHITE}a<num>${RST} Activate conf   ${WHITE}e<num>${RST} Edit conf   ${WHITE}r<num>${RST} Reset defaults   ${WHITE}?<num>${RST} Help${page_hint}   ${WHITE}ENTER${RST} Back\n"
 
-        if ! _read_menu_input "$(( tlines - 1 ))"; then
-            local _read_rc=$?
+        _read_menu_input "$(( tlines - 1 ))"
+        local _read_rc=$?
+        if [ "$_read_rc" -ne 0 ]; then
             [ "$_read_rc" -eq 2 ] && continue
             return
         fi
@@ -6045,10 +6255,15 @@ menu_module_management() {
         [ -z "$raw_choice" ] && return
 
         local action nums inum
-        action="${raw_choice:0:1}"
-        nums="${raw_choice:1}"
+        if [[ "$raw_choice" =~ ^[[:space:]]*[0-9]+[[:space:]]*$ ]]; then
+            action="?"
+            nums="$raw_choice"
+        else
+            action="${raw_choice:0:1}"
+            nums="${raw_choice:1}"
+        fi
 
-        case "${action,,}" in
+        case "$(lower "$action")" in
             '<')
                 page_start=$(( page_start - page_size ))
                 [ "$page_start" -lt 0 ] && page_start=0
@@ -6066,7 +6281,7 @@ menu_module_management() {
                 inum="$_PARSED_INDEX"
                 IFS='|' read -r key name url sql_dirs <<< "${available_entries[$((inum - 1))]}"
 
-                if [ "${action,,}" = "?" ]; then
+                if [ "$(lower "$action")" = "?" ]; then
                     print_header
                     printf "  ${GOLD}── Module Config Help: %s ──${RST}\n\n" "$name"
                     local conf_name conf_dist conf_active
@@ -6111,7 +6326,7 @@ menu_module_management() {
                 conf_active=$(_module_conf_active_path "$key" 2>/dev/null || true)
                 mkdir -p "$SERVER_DIR/env/dist/etc/modules"
 
-                if [ "${action,,}" = "a" ]; then
+                if [ "$(lower "$action")" = "a" ]; then
                     if [ -z "$conf_dist" ] || [ ! -f "$conf_dist" ]; then
                         print_warning "Template .dist not found for $name."
                         print_info "Run top-level option Rebuild worldserver, then try again."
@@ -6130,7 +6345,7 @@ menu_module_management() {
                     continue
                 fi
 
-                if [ "${action,,}" = "e" ]; then
+                if [ "$(lower "$action")" = "e" ]; then
                     if [ ! -f "$conf_active" ]; then
                         if [ -n "$conf_dist" ] && [ -f "$conf_dist" ] && ask_yes_no "No active conf yet. Create it from .dist now?"; then
                             cp "$conf_dist" "$conf_active"
@@ -6148,7 +6363,7 @@ menu_module_management() {
                     continue
                 fi
 
-                if [ "${action,,}" = "r" ]; then
+                if [ "$(lower "$action")" = "r" ]; then
                     if [ -z "$conf_dist" ] || [ ! -f "$conf_dist" ]; then
                         print_warning "Template .dist not found for $name."
                         print_info "Run top-level option Rebuild worldserver, then try again."
@@ -6168,7 +6383,7 @@ menu_module_management() {
                 fi
                 ;;
             *)
-                print_warning "Unknown command. Use a<num>, e<num>, r<num>, ?<num>, or ENTER."
+                print_warning "Unknown command. Use a<num>, e<num>, r<num>, ?<num>, a bare number for help, or ENTER."
                 press_enter
                 ;;
         esac
@@ -6359,8 +6574,9 @@ menu_sql_mods() {
         [ "$total_pages" -gt 1 ] && page_hint="   ${WHITE}< >${RST} Page"
         printf "  ${WHITE}i<num>${RST} Install   ${WHITE}r<num>${RST} Remove   ${WHITE}c<num>${RST} Config   ${WHITE}?<num>${RST} About${page_hint}   ${WHITE}ENTER${RST} Back\n"
 
-        if ! _read_menu_input "$(( tlines - 1 ))"; then
-            local _read_rc=$?
+        _read_menu_input "$(( tlines - 1 ))"
+        local _read_rc=$?
+        if [ "$_read_rc" -ne 0 ]; then
             [ "$_read_rc" -eq 2 ] && continue
             return
         fi
@@ -6371,7 +6587,7 @@ menu_sql_mods() {
         action="${raw_choice:0:1}"
         nums="${raw_choice:1}"
 
-        case "${action,,}" in
+        case "$(lower "$action")" in
             '<')
                 page_start=$(( page_start - page_size ))
                 [ "$page_start" -lt 0 ] && page_start=0
@@ -6565,18 +6781,26 @@ fix_battlepass_npc() {
         return 1
     fi
     echo ""
+    if _place_npc_in_capitals_db 90100 "Battle Pass Vendor" \
+        "If automatic placement is unavailable, restart the worldserver and use the GM commands shown below."; then
+        return 0
+    fi
+    echo ""
+    _offer_npc_in_capitals 90100 "Battle Pass Vendor" \
+        "Run after restarting the worldserver so entry 90100 is loaded."
+    echo ""
     if ask_yes_no "Restart the worldserver now to load the new creature_template?"; then
         if [ -z "$WORLD_CONTAINER" ] || ! container_running "$WORLD_CONTAINER"; then
             print_error "Worldserver container not running — start the server first, then restart manually."
         elif docker restart "$WORLD_CONTAINER"; then
-            print_success "Worldserver restarted — use .npc add 90100 in-game to spawn the NPC."
+            print_success "Worldserver restarted — use the GM commands above to spawn the NPC."
         else
             print_error "Restart failed. Container: $WORLD_CONTAINER"
         fi
     else
         print_info "Remember to restart the worldserver before spawning."
         print_info "  Main menu → Restart Server  or:  ${CYAN}docker restart $WORLD_CONTAINER${RST}"
-        print_info "  then in-game: ${CYAN}.npc add 90100${RST}"
+        print_info "  then use the GM commands shown above."
     fi
 }
 
@@ -6616,6 +6840,32 @@ fix_battlepass_csmh_crash() {
     print_info "  1. In-game GM command:  ${CYAN}.reload ale${RST}"
     print_info "  2. OR restart the worldserver from the main menu."
     print_info "  Full CSMH client sync is preserved — all BattlePass features work."
+}
+
+fix_battlepass_playerbot_guard() {
+    print_step "Fix: BattlePass ignores Playerbots"
+    echo ""
+    echo -e "${WHITE}BattlePass is player-facing progression. On Playerbots servers, bot quest${RST}"
+    echo -e "${WHITE}activity can fire high-volume quest completion hooks and repeatedly hit${RST}"
+    echo -e "${WHITE}quest:IsDailyQuest(). This patch skips playerbots/non-player sessions before${RST}"
+    echo -e "${WHITE}BattlePass touches quest, kill, level, login, PvP, or BG progression.${RST}"
+    echo ""
+
+    local lua_dir
+    lua_dir=$(ale_lua_scripts_dir)
+
+    if [ ! -d "$lua_dir/battlepass" ]; then
+        print_error "BattlePass not deployed at: $lua_dir/battlepass"
+        print_info "Deploy it first via: ALE Scripts → Install → battlepass"
+        return 1
+    fi
+
+    patch_ale_battlepass_playerbot_guard "$lua_dir/battlepass" || return 1
+
+    echo ""
+    print_info "Next steps:"
+    print_info "  1. In-game GM command:  ${CYAN}.reload ale${RST}"
+    print_info "  2. OR restart the worldserver from the main menu."
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -6724,17 +6974,19 @@ menu_server_maintenance() {
         printf "  ${WHITE}4)${RST} Fix: ac-db-import 'Table already exists' errors\n"
         printf "  ${WHITE}5)${RST} Fix: BattlePass NPC missing (entry 90100)\n"
         printf "  ${WHITE}6)${RST} Fix: BattlePass crash (remove duplicate CSMH require)\n"
-        printf "  ${WHITE}7)${RST} Clean Docker cache / build artifacts\n"
+        printf "  ${WHITE}7)${RST} Fix: BattlePass ignores Playerbots\n"
+        printf "  ${WHITE}8)${RST} Clean Docker cache / build artifacts\n"
         printf "  ${GOLD}──────────────────────────────────────────────────${RST}\n"
         printf "  ${DIM}  [ENTER] Back${RST}\n"
 
         local _tlines; _tlines=$_TERM_LINES
-        if ! _read_menu_input "$(( _tlines - 1 ))"; then
-            local _read_rc=$?
+        _read_menu_input "$(( _tlines - 1 ))"
+        local _read_rc=$?
+        if [ "$_read_rc" -ne 0 ]; then
             [ "$_read_rc" -eq 2 ] && continue
             return
         fi
-        local choice="${_MENU_INPUT,,}"
+        local choice="$(lower "$_MENU_INPUT")"
 
         case "$choice" in
             1) repair_install_state; press_enter ;;
@@ -6743,9 +6995,10 @@ menu_server_maintenance() {
             4) fix_dbimport_table_exists; press_enter ;;
             5) fix_battlepass_npc; press_enter ;;
             6) fix_battlepass_csmh_crash; press_enter ;;
-            7) cleanup_docker; press_enter ;;
+            7) fix_battlepass_playerbot_guard; press_enter ;;
+            8) cleanup_docker; press_enter ;;
             "") return ;;
-            *) print_warning "Enter 1–7 or ENTER to go back."; press_enter ;;
+            *) print_warning "Enter 1–8 or ENTER to go back."; press_enter ;;
         esac
     done
 }
@@ -6816,7 +7069,7 @@ _maintenance_import() {
     printf "\n  ${DIM}Or enter a full path to a .sql or .sql.gz file.${RST}\n"
     printf "\n  ${WHITE}Select [1-%d] or path (B to cancel): ${RST}" "${#files[@]}"
     local sel; read -r sel
-    [ "${sel,,}" = "b" ] || [ -z "$sel" ] && return
+    [ "$(lower "$sel")" = "b" ] || [ -z "$sel" ] && return
 
     local chosen_file
     if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le "${#files[@]}" ]; then
@@ -6902,12 +7155,13 @@ menu_configuration() {
         printf "  ${GOLD}──────────────────────────────────────────────────${RST}\n"
         printf "  ${DIM}  [ENTER] Back${RST}\n"
         local _tlines; _tlines=$_TERM_LINES
-        if ! _read_menu_input "$(( _tlines - 1 ))"; then
-            local _read_rc=$?
+        _read_menu_input "$(( _tlines - 1 ))"
+        local _read_rc=$?
+        if [ "$_read_rc" -ne 0 ]; then
             [ "$_read_rc" -eq 2 ] && continue
             return
         fi
-        local choice="${_MENU_INPUT,,}"
+        local choice="$(lower "$_MENU_INPUT")"
         case "$choice" in
             c)  configure_wow_client; press_enter ;;
             1)  configure_ahbot; press_enter ;;
@@ -6936,12 +7190,13 @@ menu_server_modifications() {
         printf "  ${GOLD}──────────────────────────────────────────────────${RST}\n"
         printf "  ${DIM}  [ENTER] Back${RST}\n"
         local _tlines; _tlines=$_TERM_LINES
-        if ! _read_menu_input "$(( _tlines - 1 ))"; then
-            local _read_rc=$?
+        _read_menu_input "$(( _tlines - 1 ))"
+        local _read_rc=$?
+        if [ "$_read_rc" -ne 0 ]; then
             [ "$_read_rc" -eq 2 ] && continue
             return
         fi
-        local choice="${_MENU_INPUT,,}"
+        local choice="$(lower "$_MENU_INPUT")"
         case "$choice" in
             1)  menu_modules ;;
             2)  menu_ale_scripts ;;
@@ -6971,12 +7226,13 @@ menu_server_controls() {
         printf "  ${GOLD}──────────────────────────────────────────────────${RST}\n"
         printf "  ${DIM}  [ENTER] Back${RST}\n"
         local _tlines; _tlines=$_TERM_LINES
-        if ! _read_menu_input "$(( _tlines - 1 ))"; then
-            local _read_rc=$?
+        _read_menu_input "$(( _tlines - 1 ))"
+        local _read_rc=$?
+        if [ "$_read_rc" -ne 0 ]; then
             [ "$_read_rc" -eq 2 ] && continue
             return
         fi
-        local choice="${_MENU_INPUT,,}"
+        local choice="$(lower "$_MENU_INPUT")"
         case "$choice" in
             1)  server_status; press_enter ;;
             2)  server_start; press_enter ;;
@@ -7008,17 +7264,21 @@ main_menu() {
         printf "  ${GOLD} Q)${RST} Quit\n"
         local _tlines; _tlines=$_TERM_LINES
         local _irow=$(( _tlines - 1 ))
-        if ! _read_menu_input "$_irow"; then
-            local _read_rc=$?
+        _read_menu_input "$_irow"
+        local _read_rc=$?
+        if [ "$_read_rc" -ne 0 ]; then
             [ "$_read_rc" -eq 2 ] && continue
-            return
+            echo ""
+            print_info "Input closed — exiting."
+            exit 0
         fi
-        local choice="${_MENU_INPUT,,}"
+        local choice="$(lower "$_MENU_INPUT")"
         case "$choice" in
             1)  menu_configuration ;;
             2)  menu_server_modifications ;;
             3)  menu_server_controls ;;
             q)  echo ""; print_info "Goodbye!"; exit 0 ;;
+            *)  print_warning "Enter 1–3 or Q to quit."; press_enter ;;
         esac
     done
 }
