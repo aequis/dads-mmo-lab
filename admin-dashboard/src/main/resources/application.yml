@@ -28,10 +28,15 @@ wow:
     characters: ${WOW_ADMIN_CHARACTERS_DB:acore_characters}
     playerbots: ${WOW_ADMIN_PLAYERBOTS_DB:acore_playerbots}
   playerbots:
+    override-env-path: ${WOW_ADMIN_PLAYERBOTS_OVERRIDE_ENV_PATH:/playerbot-overrides/playerbots.env}
+    generated-config-path: ${WOW_ADMIN_PLAYERBOTS_GENERATED_CONFIG_PATH:/playerbot-overrides/playerbots.conf}
     config-paths:
       - ${WOW_ADMIN_PLAYERBOTS_CONFIG_PATH:/playerbots.conf.dist}
       - /azerothcore/modules/mod-playerbots/conf/playerbots.conf.dist
       - /azerothcore/env/dist/etc/modules/playerbots.conf.dist
+  docker:
+    socket-path: ${WOW_ADMIN_DOCKER_SOCKET_PATH:/var/run/docker.sock}
+    worldserver-container: ${WOW_ADMIN_WORLDSERVER_CONTAINER:ac-worldserver}
   soap:
     url: ${WOW_ADMIN_SOAP_URL:http://ac-worldserver:7878/}
     username: ${WOW_ADMIN_SOAP_USER:}

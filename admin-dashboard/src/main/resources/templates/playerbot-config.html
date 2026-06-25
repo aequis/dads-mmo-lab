@@ -19,6 +19,11 @@
 </header>
 
 <main>
+  <section th:if="${commandResult}" class="notice" th:classappend="${commandResult.success()} ? ' ok' : ' bad'">
+    <strong th:text="${commandResult.success()} ? 'Action complete' : 'Action failed'">Action</strong>
+    <span th:text="${commandResult.message()}"></span>
+  </section>
+
   <section th:if="${config.error}" class="notice bad">
     <strong>Config unavailable</strong>
     <span th:text="${config.error}">No config found.</span>
@@ -32,93 +37,123 @@
 
   <section class="toolbar">
     <input id="config-filter" type="search" placeholder="Filter options">
+    <button th:if="${config.sourcePath}" type="submit" form="playerbot-config-form">Save Changes</button>
+    <form method="post" action="/playerbots/config/restart-worldserver">
+      <button type="submit" th:disabled="${!dockerControlEnabled}">Restart Worldserver</button>
+    </form>
     <a class="button-link" href="/playerbots">Back to Playerbots</a>
   </section>
 
   <section th:if="${config.sourcePath}" class="config-sections">
     <h2>Playerbot Options</h2>
-    <article class="config-section-block"
-             th:each="section : ${config.sections}"
-             th:attr="data-filter=${#strings.toLowerCase(section.name)}">
-      <details class="config-section-details">
-        <summary>
-          <span th:text="${section.name}">General Settings</span>
-          <small>
-            <span th:text="${#lists.size(section.options)}">0</span> options
-            <span th:if="${section.hasOverrides()}">
-              &middot; <span th:text="${section.overriddenCount}">0</span> overridden
-            </span>
-          </small>
-        </summary>
-        <table class="config-table">
-          <colgroup>
-            <col class="config-option">
-            <col class="config-value">
-            <col class="config-value">
-            <col class="config-env">
-            <col class="config-description">
-          </colgroup>
-          <thead>
-          <tr>
-            <th>Option</th>
-            <th>Effective</th>
-            <th>Default</th>
-            <th>Override Env</th>
-            <th>Description</th>
-          </tr>
-          </thead>
-          <tbody>
-          <tr th:each="option : ${section.options}"
-              th:attr="data-filter=${#strings.toLowerCase(option.section + ' ' + option.key + ' ' + option.effectiveValue + ' ' + option.defaultValue + ' ' + option.primaryEnvName() + ' ' + option.description)}">
-            <td><code th:text="${option.key}">AiPlayerbot.Enabled</code></td>
-            <td>
-              <code th:text="${option.effectiveValue}">1</code>
-              <span th:if="${option.overridden()}" class="pill">override</span>
-            </td>
-            <td><code th:text="${option.defaultValue}">1</code></td>
-            <td>
-              <code th:text="${option.overrideEnv ?: option.primaryEnvName()}">AC_AI_PLAYERBOT_ENABLED</code>
-            </td>
-            <td th:text="${option.description}">Description</td>
-          </tr>
-          </tbody>
-        </table>
-      </details>
+    <form id="playerbot-config-form" method="post" action="/playerbots/config/override/bulk">
+      <article class="config-section-block"
+               th:each="section : ${config.sections}"
+               th:attr="data-filter=${#strings.toLowerCase(section.name)}">
+        <details class="config-section-details">
+          <summary>
+            <span th:text="${section.name}">General Settings</span>
+            <small>
+              <span th:text="${#lists.size(section.options)}">0</span> options
+              <span th:if="${section.hasOverrides()}">
+                &middot; <span th:text="${section.overriddenCount}">0</span> overridden
+              </span>
+            </small>
+          </summary>
+          <table class="config-table">
+            <colgroup>
+              <col class="config-option">
+              <col class="config-effective">
+              <col class="config-default">
+              <col class="config-source">
+              <col class="config-env">
+              <col class="config-description">
+              <col class="config-actions">
+            </colgroup>
+            <thead>
+            <tr>
+              <th>Option</th>
+              <th>Effective</th>
+              <th>Default</th>
+              <th>Source</th>
+              <th>Override Env</th>
+              <th>Description</th>
+              <th>Actions</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="option : ${section.options}"
+                th:attr="data-filter=${#strings.toLowerCase(option.section + ' ' + option.key + ' ' + option.effectiveValue + ' ' + option.defaultValue + ' ' + (option.overrideSource ?: 'default') + ' ' + option.primaryEnvName() + ' ' + option.description)}">
+              <td><code th:text="${option.key}">AiPlayerbot.Enabled</code></td>
+              <td>
+                <div class="config-value-editor">
+                  <input type="hidden" name="option" th:value="${option.key}">
+                  <input type="hidden" name="originalValue" th:value="${option.effectiveValue}">
+                  <input name="value" th:value="${option.effectiveValue}" aria-label="Effective value">
+                </div>
+                <span th:if="${option.overridden()}" class="pill">modified</span>
+              </td>
+              <td><code th:text="${option.defaultValue}">1</code></td>
+              <td><span th:text="${option.overrideSource ?: 'default'}">default</span></td>
+              <td>
+                <code th:text="${option.overrideEnv ?: option.primaryEnvName()}">AC_AI_PLAYERBOT_ENABLED</code>
+              </td>
+              <td th:text="${option.description}">Description</td>
+              <td class="config-actions-cell">
+                <button th:if="${option.dashboardManaged()}" type="submit" formaction="/playerbots/config/override/remove" name="resetOption" th:value="${option.key}">Reset</button>
+              </td>
+            </tr>
+            </tbody>
+          </table>
+        </details>
 
-      <div class="config-overrides" th:if="${section.hasOverrides()}">
-        <table class="config-table">
-          <colgroup>
-            <col class="config-option">
-            <col class="config-value">
-            <col class="config-value">
-            <col class="config-env">
-            <col class="config-description">
-          </colgroup>
-          <thead>
-          <tr>
-            <th>Option</th>
-            <th>Effective</th>
-            <th>Default</th>
-            <th>Override Env</th>
-            <th>Description</th>
-          </tr>
-          </thead>
-          <tbody>
-          <tr th:each="option : ${section.overriddenOptions()}"
-              th:attr="data-filter=${#strings.toLowerCase(option.section + ' ' + option.key + ' ' + option.effectiveValue + ' ' + option.defaultValue + ' ' + option.primaryEnvName() + ' ' + option.description)}">
-            <td><code th:text="${option.key}">AiPlayerbot.MinRandomBots</code></td>
-            <td>
-              <code th:text="${option.effectiveValue}">1600</code>
-              <span class="pill">override</span>
-            </td>
-            <td><code th:text="${option.defaultValue}">500</code></td>
-            <td><code th:text="${option.overrideEnv}">AC_AI_PLAYERBOT_MIN_RANDOM_BOTS</code></td>
-            <td th:text="${option.description}">Description</td>
-          </tr>
-          </tbody>
-        </table>
-      </div>
-    </article>
+        <div class="config-overrides" th:if="${section.hasOverrides()}">
+          <table class="config-table">
+            <colgroup>
+              <col class="config-option">
+              <col class="config-effective">
+              <col class="config-default">
+              <col class="config-source">
+              <col class="config-env">
+              <col class="config-description">
+              <col class="config-actions">
+            </colgroup>
+            <thead>
+            <tr>
+              <th>Option</th>
+              <th>Effective</th>
+              <th>Default</th>
+              <th>Source</th>
+              <th>Override Env</th>
+              <th>Description</th>
+              <th>Actions</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="option : ${section.overriddenOptions()}"
+                th:attr="data-filter=${#strings.toLowerCase(option.section + ' ' + option.key + ' ' + option.effectiveValue + ' ' + option.defaultValue + ' ' + (option.overrideSource ?: 'default') + ' ' + option.primaryEnvName() + ' ' + option.description)}">
+              <td><code th:text="${option.key}">AiPlayerbot.MinRandomBots</code></td>
+              <td>
+                <div class="config-value-editor">
+                  <input type="hidden" name="option" th:value="${option.key}">
+                  <input type="hidden" name="originalValue" th:value="${option.effectiveValue}">
+                  <input name="value" th:value="${option.effectiveValue}" aria-label="Effective value">
+                </div>
+                <span class="pill">modified</span>
+              </td>
+              <td><code th:text="${option.defaultValue}">500</code></td>
+              <td><span th:text="${option.overrideSource ?: 'default'}">dashboard</span></td>
+              <td><code th:text="${option.overrideEnv}">AC_AI_PLAYERBOT_MIN_RANDOM_BOTS</code></td>
+              <td th:text="${option.description}">Description</td>
+              <td class="config-actions-cell">
+                <button th:if="${option.dashboardManaged()}" type="submit" formaction="/playerbots/config/override/remove" name="resetOption" th:value="${option.key}">Reset</button>
+              </td>
+            </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </form>
   </section>
 
   <section>

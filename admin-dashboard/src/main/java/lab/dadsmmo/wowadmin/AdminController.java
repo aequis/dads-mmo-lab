@@ -1,5 +1,6 @@
 package lab.dadsmmo.wowadmin;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -28,13 +29,16 @@ public class AdminController {
 
     private final DashboardService dashboardService;
     private final PlayerbotConfigService playerbotConfigService;
+    private final DockerComposeService dockerComposeService;
     private final SoapCommandService soapCommandService;
 
     public AdminController(DashboardService dashboardService,
                            PlayerbotConfigService playerbotConfigService,
+                           DockerComposeService dockerComposeService,
                            SoapCommandService soapCommandService) {
         this.dashboardService = dashboardService;
         this.playerbotConfigService = playerbotConfigService;
+        this.dockerComposeService = dockerComposeService;
         this.soapCommandService = soapCommandService;
     }
 
@@ -70,8 +74,49 @@ public class AdminController {
     @GetMapping("/playerbots/config")
     public String playerbotConfig(Model model) {
         model.addAttribute("config", playerbotConfigService.load());
+        model.addAttribute("dockerControlEnabled", dockerComposeService.enabled());
         common(model);
         return "playerbot-config";
+    }
+
+    @PostMapping("/playerbots/config/override")
+    public String savePlayerbotOverride(@RequestParam String option,
+                                        @RequestParam String value,
+                                        RedirectAttributes redirectAttributes) {
+        PlayerbotConfigService.ConfigWriteResult result = playerbotConfigService.saveOverride(option, value);
+        redirectAttributes.addFlashAttribute("commandResult",
+                new ShellResult(result.success(), result.message()));
+        return "redirect:/playerbots/config";
+    }
+
+    @PostMapping("/playerbots/config/override/bulk")
+    public String savePlayerbotOverrides(@RequestParam("option") List<String> option,
+                                         @RequestParam("value") List<String> value,
+                                         @RequestParam("originalValue") List<String> originalValue,
+                                         RedirectAttributes redirectAttributes) {
+        PlayerbotConfigService.ConfigWriteResult result =
+                playerbotConfigService.saveOverrides(option, value, originalValue);
+        redirectAttributes.addFlashAttribute("commandResult",
+                new ShellResult(result.success(), result.message()));
+        return "redirect:/playerbots/config";
+    }
+
+    @PostMapping("/playerbots/config/override/remove")
+    public String removePlayerbotOverride(@RequestParam(name = "option", required = false) String option,
+                                          @RequestParam(name = "resetOption", required = false) String resetOption,
+                                          RedirectAttributes redirectAttributes) {
+        PlayerbotConfigService.ConfigWriteResult result =
+                playerbotConfigService.removeOverride(resetOption == null ? option : resetOption);
+        redirectAttributes.addFlashAttribute("commandResult",
+                new ShellResult(result.success(), result.message()));
+        return "redirect:/playerbots/config";
+    }
+
+    @PostMapping("/playerbots/config/restart-worldserver")
+    public String restartWorldserver(RedirectAttributes redirectAttributes) {
+        ShellResult result = dockerComposeService.recreateWorldserver();
+        redirectAttributes.addFlashAttribute("commandResult", result);
+        return "redirect:/playerbots/config";
     }
 
     @PostMapping("/command")
