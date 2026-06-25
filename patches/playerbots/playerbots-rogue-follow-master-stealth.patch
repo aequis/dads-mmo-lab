@@ -1,0 +1,195 @@
+diff --git a/src/Ai/Base/Actions/ImbueAction.cpp b/src/Ai/Base/Actions/ImbueAction.cpp
+index a6d56d2..44a5781 100644
+--- a/src/Ai/Base/Actions/ImbueAction.cpp
++++ b/src/Ai/Base/Actions/ImbueAction.cpp
+@@ -8,6 +8,15 @@
+ #include "Event.h"
+ #include "Playerbots.h"
+ 
++namespace
++{
++bool ShouldPreserveMasterStealth(PlayerbotAI* botAI, Player* bot)
++{
++    Unit* master = botAI->GetMaster();
++    return bot->HasAura(SPELL_AURA_MOD_STEALTH) && master && botAI->HasAnyAuraOf(master, "stealth", "prowl", nullptr);
++}
++}
++
+ ImbueWithPoisonAction::ImbueWithPoisonAction(PlayerbotAI* botAI) : Action(botAI, "apply poison") {}
+ 
+ bool ImbueWithPoisonAction::Execute(Event /*event*/)
+@@ -15,6 +24,9 @@ bool ImbueWithPoisonAction::Execute(Event /*event*/)
+     if (bot->IsInCombat())
+         return false;
+ 
++    if (ShouldPreserveMasterStealth(botAI, bot))
++        return false;
++
+     // remove stealth
+     if (bot->HasAura(SPELL_AURA_MOD_STEALTH))
+         bot->RemoveAurasByType(SPELL_AURA_MOD_STEALTH);
+@@ -108,6 +120,9 @@ bool ImbueWithStoneAction::Execute(Event /*event*/)
+     if (bot->IsInCombat())
+         return false;
+ 
++    if (ShouldPreserveMasterStealth(botAI, bot))
++        return false;
++
+     // remove stealth
+     if (bot->HasAura(SPELL_AURA_MOD_STEALTH))
+         bot->RemoveAurasByType(SPELL_AURA_MOD_STEALTH);
+@@ -153,6 +168,9 @@ bool ImbueWithOilAction::Execute(Event /*event*/)
+     if (bot->IsInCombat())
+         return false;
+ 
++    if (ShouldPreserveMasterStealth(botAI, bot))
++        return false;
++
+     // remove stealth
+     if (bot->HasAura(SPELL_AURA_MOD_STEALTH))
+         bot->RemoveAurasByType(SPELL_AURA_MOD_STEALTH);
+diff --git a/src/Ai/Class/Rogue/Action/RogueActions.cpp b/src/Ai/Class/Rogue/Action/RogueActions.cpp
+index aae0d3e..54334b0 100644
+--- a/src/Ai/Class/Rogue/Action/RogueActions.cpp
++++ b/src/Ai/Class/Rogue/Action/RogueActions.cpp
+@@ -17,6 +17,12 @@ constexpr uint32 SPELL_WARSONG_FLAG = 23333;
+ constexpr uint32 SPELL_SILVERWING_FLAG = 23335;
+ constexpr uint32 SPELL_NETHERSTORM_FLAG = 34976;
+ constexpr uint32 SPELL_MASTER_POISONER_RANK_3 = 58410;
++
++bool IsMasterStealthed(PlayerbotAI* botAI)
++{
++    Unit* master = botAI->GetMaster();
++    return master && botAI->HasAnyAuraOf(master, "stealth", "prowl", nullptr);
++}
+ }
+ 
+ bool CastStealthAction::isUseful()
+@@ -36,6 +42,9 @@ bool CastStealthAction::isPossible()
+ 
+ bool UnstealthAction::Execute(Event /*event*/)
+ {
++    if (IsMasterStealthed(botAI))
++        return false;
++
+     botAI->RemoveAura("stealth");
+     // botAI->ChangeStrategy("+dps,-stealthed", BOT_STATE_COMBAT);
+ 
+diff --git a/src/Ai/Class/Rogue/RogueAiObjectContext.cpp b/src/Ai/Class/Rogue/RogueAiObjectContext.cpp
+index 4b4ebab..01d4b80 100644
+--- a/src/Ai/Class/Rogue/RogueAiObjectContext.cpp
++++ b/src/Ai/Class/Rogue/RogueAiObjectContext.cpp
+@@ -72,6 +72,8 @@ public:
+         creators["in stealth"] = &RogueTriggerFactoryInternal::in_stealth;
+         creators["no stealth"] = &RogueTriggerFactoryInternal::no_stealth;
+         creators["stealth"] = &RogueTriggerFactoryInternal::stealth;
++        creators["follow master stealth"] = &RogueTriggerFactoryInternal::follow_master_stealth;
++        creators["follow master unstealth"] = &RogueTriggerFactoryInternal::follow_master_unstealth;
+         creators["sprint"] = &RogueTriggerFactoryInternal::sprint;
+         creators["main hand weapon no enchant"] = &RogueTriggerFactoryInternal::main_hand_weapon_no_enchant;
+         creators["off hand weapon no enchant"] = &RogueTriggerFactoryInternal::off_hand_weapon_no_enchant;
+@@ -94,6 +96,8 @@ private:
+     static Trigger* in_stealth(PlayerbotAI* botAI) { return new InStealthTrigger(botAI); }
+     static Trigger* no_stealth(PlayerbotAI* botAI) { return new NoStealthTrigger(botAI); }
+     static Trigger* stealth(PlayerbotAI* botAI) { return new StealthTrigger(botAI); }
++    static Trigger* follow_master_stealth(PlayerbotAI* botAI) { return new FollowMasterStealthTrigger(botAI); }
++    static Trigger* follow_master_unstealth(PlayerbotAI* botAI) { return new FollowMasterUnstealthTrigger(botAI); }
+     static Trigger* sprint(PlayerbotAI* botAI) { return new SprintTrigger(botAI); }
+     static Trigger* main_hand_weapon_no_enchant(PlayerbotAI* ai) { return new MainHandWeaponNoEnchantTrigger(ai); }
+     static Trigger* off_hand_weapon_no_enchant(PlayerbotAI* ai) { return new OffHandWeaponNoEnchantTrigger(ai); }
+diff --git a/src/Ai/Class/Rogue/RogueTriggers.cpp b/src/Ai/Class/Rogue/RogueTriggers.cpp
+index d8fd166..9f67823 100644
+--- a/src/Ai/Class/Rogue/RogueTriggers.cpp
++++ b/src/Ai/Class/Rogue/RogueTriggers.cpp
+@@ -13,6 +13,12 @@ namespace
+ {
+ constexpr uint32 SPELL_STEALTH = 1784;
+ constexpr uint32 SPELL_SPRINT_RANK_1 = 2983;
++
++bool IsMasterStealthed(PlayerbotAI* botAI)
++{
++    Unit* master = botAI->GetMaster();
++    return master && botAI->HasAnyAuraOf(master, "stealth", "prowl", nullptr);
++}
+ }
+ 
+ // bool AdrenalineRushTrigger::isPossible()
+@@ -25,6 +31,9 @@ bool UnstealthTrigger::IsActive()
+     if (!botAI->HasAura("stealth", bot))
+         return false;
+ 
++    if (IsMasterStealthed(botAI))
++        return false;
++
+     return botAI->HasAura("stealth", bot) && !AI_VALUE(uint8, "attacker count") &&
+            (AI_VALUE2(bool, "moving", "self target") &&
+             ((botAI->GetMaster() &&
+@@ -38,6 +47,9 @@ bool StealthTrigger::IsActive()
+     if (bot->HasAura(SPELL_STEALTH) || bot->IsInCombat() || bot->HasSpellCooldown(SPELL_STEALTH))
+         return false;
+ 
++    if (IsMasterStealthed(botAI))
++        return true;
++
+     float distance = 30.f;
+ 
+     Unit* target = AI_VALUE(Unit*, "enemy player target");
+@@ -69,6 +81,17 @@ bool StealthTrigger::IsActive()
+     return target && ServerFacade::instance().GetDistance2d(bot, target) < distance;
+ }
+ 
++bool FollowMasterStealthTrigger::IsActive()
++{
++    return !bot->HasAura(SPELL_STEALTH) && !bot->IsInCombat() && !bot->HasSpellCooldown(SPELL_STEALTH) &&
++           IsMasterStealthed(botAI);
++}
++
++bool FollowMasterUnstealthTrigger::IsActive()
++{
++    return bot->HasAura(SPELL_STEALTH) && !bot->IsInCombat() && botAI->GetMaster() && !IsMasterStealthed(botAI);
++}
++
+ bool SapTrigger::IsPossible() { return bot->GetLevel() > 10 && botAI->HasSpell("sap") && !bot->IsInCombat(); }
+ 
+ bool SprintTrigger::IsPossible() { return bot->HasSpell(SPELL_SPRINT_RANK_1); }
+diff --git a/src/Ai/Class/Rogue/RogueTriggers.h b/src/Ai/Class/Rogue/RogueTriggers.h
+index d9a1842..b60a0a3 100644
+--- a/src/Ai/Class/Rogue/RogueTriggers.h
++++ b/src/Ai/Class/Rogue/RogueTriggers.h
+@@ -89,6 +89,22 @@ public:
+     bool IsActive() override;
+ };
+ 
++class FollowMasterStealthTrigger : public Trigger
++{
++public:
++    FollowMasterStealthTrigger(PlayerbotAI* botAI) : Trigger(botAI, "follow master stealth") {}
++
++    bool IsActive() override;
++};
++
++class FollowMasterUnstealthTrigger : public Trigger
++{
++public:
++    FollowMasterUnstealthTrigger(PlayerbotAI* botAI) : Trigger(botAI, "follow master unstealth") {}
++
++    bool IsActive() override;
++};
++
+ class SapTrigger : public HasCcTargetTrigger
+ {
+ public:
+diff --git a/src/Ai/Class/Rogue/Strategy/GenericRogueNonCombatStrategy.cpp b/src/Ai/Class/Rogue/Strategy/GenericRogueNonCombatStrategy.cpp
+index 88838f2..cf71f50 100644
+--- a/src/Ai/Class/Rogue/Strategy/GenericRogueNonCombatStrategy.cpp
++++ b/src/Ai/Class/Rogue/Strategy/GenericRogueNonCombatStrategy.cpp
+@@ -46,5 +46,9 @@ void GenericRogueNonCombatStrategy::InitTriggers(std::vector<TriggerNode*>& trig
+         new TriggerNode("off hand weapon no enchant",
+                         { NextAction("use deadly poison on off hand", 19.0f) }));
+ 
++    triggers.push_back(new TriggerNode("follow master stealth", { NextAction("stealth", ACTION_INTERRUPT) }));
++
++    triggers.push_back(new TriggerNode("follow master unstealth", { NextAction("unstealth", ACTION_INTERRUPT) }));
++
+     triggers.push_back(new TriggerNode("often", { NextAction("unstealth", 30.0f) }));
+ }

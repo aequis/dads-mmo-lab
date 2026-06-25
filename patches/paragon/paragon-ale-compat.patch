@@ -1,0 +1,73 @@
+Description: Paragon ALE compatibility - player state cache + Lua unpack fix
+Author: Dad's MMO Lab
+Applied-By: wow-manage.sh patch_ale_paragon_compat()
+
+This patch cannot be represented as a simple unified diff because it uses
+complex multiline perl replacements. The patch is applied inline by the
+patch_ale_paragon_compat() function in wow-manage.sh.
+
+Summary of changes:
+
+--- a/paragon_hook.lua
++++ b/paragon_hook.lua
+@@ (after "-- PRIVATE FUNCTIONS" header)
++local PlayerParagonState = {}
++
++local function GetPlayerStateKey(player)
++    if not player then
++        return nil
++    end
++    if player.GetGUIDLow then
++        return player:GetGUIDLow()
++    end
++    return nil
++end
++
++local function GetPlayerParagon(player)
++    local key = GetPlayerStateKey(player)
++    if not key then
++        return nil
++    end
++    return PlayerParagonState[key]
++end
++
++local function SetPlayerParagon(player, paragon)
++    local key = GetPlayerStateKey(player)
++    if not key then
++        return false
++    end
++    PlayerParagonState[key] = paragon
++    return true
++end
++
++local function ClearPlayerParagon(player)
++    local key = GetPlayerStateKey(player)
++    if key then
++        PlayerParagonState[key] = nil
++    end
++end
++
++Hook.GetPlayerParagon = GetPlayerParagon
++Hook.SetPlayerParagon = SetPlayerParagon
++Hook.ClearPlayerParagon = ClearPlayerParagon
+
+@@ (all occurrences)
+-player:GetData("Paragon")
++GetPlayerParagon(player)
+
+-player:SetData("Paragon", paragon)
++SetPlayerParagon(player, paragon)
+
+@@ (after OnAfterPlayerStatSave mediator call)
++    ClearPlayerParagon(player)
+
+--- a/modules/paragon_target_level.lua
++++ b/modules/paragon_target_level.lua
+@@ (all occurrences)
+-target:GetData("Paragon")
++ParagonHook.GetPlayerParagon and ParagonHook.GetPlayerParagon(target)
+
+--- a/lib/Mediator/mediator.lua
++++ b/lib/Mediator/mediator.lua
+@@ (after require("classic"))
++local unpack = table.unpack or unpack

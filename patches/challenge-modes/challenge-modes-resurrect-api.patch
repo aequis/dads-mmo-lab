@@ -1,0 +1,20 @@
+--- a/src/ChallengeModes.cpp
++++ b/src/ChallengeModes.cpp
+@@ -445,7 +445,7 @@ class ChallengeModes_PlayerScript : public PlayerScript
+         // ... existing code ...
+     }
+
+-    void OnPlayerResurrect(Player* player, float restore_percent, bool applySickness) override
++    void OnPlayerResurrect(Player* player, float /*restore_percent*/, bool& /*applySickness*/) override
+     {
+         // ... existing code ...
+     }
+@@ -638,7 +638,7 @@ class ChallengeModes_AllMapScript : public AllMapScript
+         // ... existing code ...
+     }
+
+-    void OnPlayerResurrect(Player* player, float restore_percent, bool applySickness) override
++    void OnPlayerResurrect(Player* player, float /*restore_percent*/, bool& /*applySickness*/) override
+     {
+         // ... existing code ...
+     }

@@ -1,0 +1,87 @@
+Description: BattlePass playerbot guard - filter out bots from battle pass events
+Author: Dad's MMO Lab
+Applied-By: wow-manage.sh patch_ale_battlepass_playerbot_guard()
+
+This patch cannot be represented as a simple unified diff because it uses
+complex multiline perl replacements. The patch is applied inline by the
+patch_ale_battlepass_playerbot_guard() function in wow-manage.sh.
+
+Summary of changes:
+
+--- a/06_BP_Events.lua
++++ b/06_BP_Events.lua
+@@ (after "BattlePass.Events = BattlePass.Events or {}")
++-- Only real player sessions should progress Battle Pass. Playerbots can fire
++-- high-volume player events and some quest objects lack the full player API.
++function BattlePass.IsEligiblePlayer(player)
++    if not BattlePass.IsEnabled() then
++        return false
++    end
++
++    if not player then
++        return false
++    end
++
++    local ok, result
++
++    if player.IsPlayer then
++        ok, result = pcall(function() return player:IsPlayer() end)
++        if ok and not result then
++            return false
++        end
++    end
++
++    for _, method in ipairs({ "IsPlayerBot", "IsPlayerbot", "IsBot" }) do
++        if player[method] then
++            ok, result = pcall(function() return player[method](player) end)
++            if ok and result then
++                return false
++            end
++        end
++    end
++
++    if player.GetSession then
++        ok, result = pcall(function() return player:GetSession() end)
++        if ok and result == nil then
++            return false
++        end
++    end
++
++    return true
++end
+
+@@ (in OnPlayerLogin)
+-    if not BattlePass.IsEnabled() then
++    if not BattlePass.IsEligiblePlayer(player) then
+
+@@ (in OnPlayerLogout)
+-    if not BattlePass.IsEnabled() then
++    if not BattlePass.IsEligiblePlayer(player) then
+
+@@ (in OnCreatureKill)
+-    if not BattlePass.IsEnabled() then
++    if not BattlePass.IsEligiblePlayer(player) then
+
+@@ (in OnQuestComplete)
+-    if not BattlePass.IsEnabled() then
++    if not BattlePass.IsEligiblePlayer(player) then
+
+@@ (in OnPlayerLevelChange)
+-    if not BattlePass.IsEnabled() then
++    if not BattlePass.IsEligiblePlayer(player) then
+
+@@ (in OnHonorableKill)
+-    if not BattlePass.IsEnabled() then
++    if not BattlePass.IsEligiblePlayer(player) then
+
+@@ (in OnBattlegroundEnd)
+-    if not BattlePass.IsEnabled() then
++    if not BattlePass.IsEligiblePlayer(player) then
+
+@@ (in AwardCustomExp)
+-    if not BattlePass.IsEnabled() then
++    if not BattlePass.IsEligiblePlayer(player) then
+
+@@ (player world check)
+-if player and player:IsInWorld() then
++if BattlePass.IsEligiblePlayer(player) then
