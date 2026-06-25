@@ -727,7 +727,7 @@ install_modules_base() {
     if [ "$MOD_PROGRESSION" = true ]; then
         print_info "Installing Individual Progression..."
         if git clone --depth 1 \
-            https://github.com/ZhengPeiRu21/mod-individual-progression.git \
+            https://github.com/Grimfeather/mod-individual-progression.git \
             "$modules_dir/mod-individual-progression"; then
             print_success "Individual Progression installed!"
         else
