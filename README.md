@@ -99,6 +99,7 @@ Turns out — for a lot of classic MMOs — you can. The emulator community has 
 | File | What it does |
 |------|-------------|
 | `guides/WoW-GM-HOWTO.md` | GM command reference for local Vanilla, TBC, WotLK, and Unbound servers |
+| `ADMIN-DASHBOARD.md` | Browser dashboard guide for the local WotLK Playerbots server |
 
 ### WoW Vanilla 1.12 (`guides/wow-vanilla/`)
 
