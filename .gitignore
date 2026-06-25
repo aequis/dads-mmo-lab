@@ -1,2 +1,6 @@
 .DS_store
 .vscode
+.tools/
+target/
+admin-dashboard/target/
+LOCAL-CREDENTIALS.md
