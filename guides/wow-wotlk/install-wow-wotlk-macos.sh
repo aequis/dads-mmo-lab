@@ -25,6 +25,8 @@ NC='\033[0m'
 SERVER_DIR="${SERVER_DIR:-$HOME/wow-server-playerbots}"
 BUILD_LOG="${BUILD_LOG:-$HOME/playerbots-build.log}"
 DOCKER_PLATFORM="${DADS_MMO_DOCKER_PLATFORM:-}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TRIAL_MODE=0
 
 usage() {
@@ -310,15 +312,9 @@ ${platform_line}
       target: worldserver
     volumes:
       - ./modules:/azerothcore/modules
+      - ./playerbot-overrides/playerbots.conf:/azerothcore/env/dist/etc/modules/playerbots.conf:ro
     environment:
       AC_PLAYERBOTS_UPDATES_ENABLE_DATABASES: "1"
-      AC_AI_PLAYERBOT_RANDOM_BOT_AUTOLOGIN: "1"
-      AC_AI_PLAYERBOT_MIN_RANDOM_BOTS: "1600"
-      AC_AI_PLAYERBOT_MAX_RANDOM_BOTS: "2000"
-      AC_AI_PLAYERBOT_ADD_CLASS_ACCOUNT_POOL_SIZE: "50"
-      AC_AI_PLAYERBOT_ADD_CLASS_COMMAND: "1"
-      AC_AI_PLAYERBOT_SYNC_QUEST_WITH_PLAYER: "1"
-      AC_AI_PLAYERBOT_AUTO_DO_QUESTS: "1"
       AC_QUESTS_IGNORE_AUTO_ACCEPT: "1"
   ac-authserver:
 ${platform_line}
@@ -338,6 +334,87 @@ ${platform_line}
 OVERRIDE
 }
 
+install_admin_dashboard() {
+    local source_dir="$REPO_ROOT/admin-dashboard"
+    local target_dir="$SERVER_DIR/admin-dashboard"
+    local override_file="$SERVER_DIR/docker-compose.override.yml"
+    local dashboard_password
+
+    if [ ! -d "$source_dir" ]; then
+        print_warning "Admin dashboard source not found at $source_dir"
+        print_info "Skipping dashboard setup."
+        return 0
+    fi
+
+    rm -rf "$target_dir"
+    cp -R "$source_dir" "$target_dir"
+    mkdir -p "$SERVER_DIR/playerbot-overrides"
+    cat > "$SERVER_DIR/playerbot-overrides/playerbots.env" << 'PLAYERBOT_ENV'
+AC_AI_PLAYERBOT_RANDOM_BOT_AUTOLOGIN=1
+AC_AI_PLAYERBOT_MIN_RANDOM_BOTS=1600
+AC_AI_PLAYERBOT_MAX_RANDOM_BOTS=2000
+AC_AI_PLAYERBOT_ADD_CLASS_ACCOUNT_POOL_SIZE=50
+AC_AI_PLAYERBOT_ADD_CLASS_COMMAND=1
+AC_AI_PLAYERBOT_SYNC_QUEST_WITH_PLAYER=1
+AC_AI_PLAYERBOT_AUTO_DO_QUESTS=1
+PLAYERBOT_ENV
+    if [ -f "$SERVER_DIR/modules/mod-playerbots/conf/playerbots.conf.dist" ]; then
+        cp "$SERVER_DIR/modules/mod-playerbots/conf/playerbots.conf.dist" \
+           "$SERVER_DIR/playerbot-overrides/playerbots.conf"
+        perl -0pi -e 's/^AiPlayerbot\.RandomBotAutologin\s*=.*/AiPlayerbot.RandomBotAutologin = 1/m' "$SERVER_DIR/playerbot-overrides/playerbots.conf"
+        perl -0pi -e 's/^AiPlayerbot\.MinRandomBots\s*=.*/AiPlayerbot.MinRandomBots = 1600/m' "$SERVER_DIR/playerbot-overrides/playerbots.conf"
+        perl -0pi -e 's/^AiPlayerbot\.MaxRandomBots\s*=.*/AiPlayerbot.MaxRandomBots = 2000/m' "$SERVER_DIR/playerbot-overrides/playerbots.conf"
+        perl -0pi -e 's/^AiPlayerbot\.AddClassAccountPoolSize\s*=.*/AiPlayerbot.AddClassAccountPoolSize = 50/m' "$SERVER_DIR/playerbot-overrides/playerbots.conf"
+        perl -0pi -e 's/^AiPlayerbot\.AddClassCommand\s*=.*/AiPlayerbot.AddClassCommand = 1/m' "$SERVER_DIR/playerbot-overrides/playerbots.conf"
+        perl -0pi -e 's/^AiPlayerbot\.SyncQuestWithPlayer\s*=.*/AiPlayerbot.SyncQuestWithPlayer = 1/m' "$SERVER_DIR/playerbot-overrides/playerbots.conf"
+        perl -0pi -e 's/^AiPlayerbot\.AutoDoQuests\s*=.*/AiPlayerbot.AutoDoQuests = 1/m' "$SERVER_DIR/playerbot-overrides/playerbots.conf"
+    fi
+
+    if ! grep -q "wow-admin-dashboard:" "$override_file" 2>/dev/null; then
+        dashboard_password="$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24)"
+        dashboard_password="${dashboard_password:-ChangeMeBeforeUse}"
+        cat >> "$override_file" << ADMIN_DASHBOARD
+  wow-admin-dashboard:
+    build:
+      context: ./admin-dashboard
+    depends_on:
+      ac-database:
+        condition: service_healthy
+      ac-worldserver:
+        condition: service_started
+    networks:
+      - ac-network
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./modules/mod-playerbots/conf/playerbots.conf.dist:/playerbots.conf.dist:ro
+      - ./playerbot-overrides:/playerbot-overrides
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WOW_ADMIN_JDBC_URL: "jdbc:mysql://ac-database:3306/acore_auth?allowPublicKeyRetrieval=true&useSSL=false"
+      WOW_ADMIN_DB_USER: "root"
+      WOW_ADMIN_DB_PASSWORD: "password"
+      WOW_ADMIN_AUTH_DB: "acore_auth"
+      WOW_ADMIN_CHARACTERS_DB: "acore_characters"
+      WOW_ADMIN_PLAYERBOTS_DB: "acore_playerbots"
+      WOW_ADMIN_PLAYERBOTS_CONFIG_PATH: "/playerbots.conf.dist"
+      WOW_ADMIN_PLAYERBOTS_OVERRIDE_ENV_PATH: "/playerbot-overrides/playerbots.env"
+      WOW_ADMIN_PLAYERBOTS_GENERATED_CONFIG_PATH: "/playerbot-overrides/playerbots.conf"
+      WOW_ADMIN_DOCKER_SOCKET_PATH: "/var/run/docker.sock"
+      WOW_ADMIN_WORLDSERVER_CONTAINER: "ac-worldserver"
+      WOW_ADMIN_DASHBOARD_USER: "admin"
+      WOW_ADMIN_DASHBOARD_PASSWORD: "$dashboard_password"
+      WOW_ADMIN_SOAP_URL: "http://ac-worldserver:7878/"
+      WOW_ADMIN_SOAP_USER: ""
+      WOW_ADMIN_SOAP_PASSWORD: ""
+ADMIN_DASHBOARD
+    fi
+
+    print_success "Admin dashboard installed"
+    print_info "Dashboard URL: http://127.0.0.1:8090"
+    print_info "Dashboard login is admin plus the password in docker-compose.override.yml"
+}
+
 install_server() {
     print_header
     print_step "Building Playerbots Server"
@@ -349,6 +426,7 @@ install_server() {
        (cd "$SERVER_DIR" && compose images 2>/dev/null | grep -qi "worldserver"); then
         print_success "Compiled images already found in $SERVER_DIR"
         print_info "Skipping compile and starting existing server."
+        install_admin_dashboard
         cd "$SERVER_DIR" || exit 1
         compose up -d 2>&1 | tail -5
         return 0
@@ -391,6 +469,7 @@ install_server() {
     fi
 
     write_compose_override
+    install_admin_dashboard
     print_success "Docker Compose override written"
 
     print_info "Compiling Playerbots server. This can take a long time."
@@ -471,6 +550,13 @@ USEFUL COMMANDS:
 
   Worldserver logs:
     cd "${SERVER_DIR}" && docker compose logs -f ac-worldserver
+
+  Admin dashboard:
+    http://127.0.0.1:8090
+
+  Enable dashboard command buttons:
+    Edit docker-compose.override.yml and set WOW_ADMIN_SOAP_USER / WOW_ADMIN_SOAP_PASSWORD
+    on the wow-admin-dashboard service, then run docker compose up -d.
 
   Console:
     docker attach \$(docker ps --format '{{.Names}}' | grep worldserver | head -1)

@@ -94,6 +94,81 @@ press_enter() {
 # CONFIGURATION
 # ─────────────────────────────────────────
 SERVER_DIR="$HOME/wow-server-playerbots"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+install_admin_dashboard() {
+    local source_dir="$REPO_ROOT/admin-dashboard"
+    local target_dir="$SERVER_DIR/admin-dashboard"
+    local override_file="$SERVER_DIR/docker-compose.override.yml"
+    local dashboard_password
+
+    if [ ! -d "$source_dir" ]; then
+        print_warning "Admin dashboard source not found at $source_dir"
+        print_info "Skipping dashboard setup."
+        return 0
+    fi
+
+    rm -rf "$target_dir"
+    cp -R "$source_dir" "$target_dir"
+    mkdir -p "$SERVER_DIR/playerbot-overrides"
+    cat > "$SERVER_DIR/playerbot-overrides/playerbots.env" << 'PLAYERBOT_ENV'
+AC_AI_PLAYERBOT_RANDOM_BOT_AUTOLOGIN=1
+AC_AI_PLAYERBOT_MIN_RANDOM_BOTS=1600
+AC_AI_PLAYERBOT_MAX_RANDOM_BOTS=2000
+PLAYERBOT_ENV
+    if [ -f "$SERVER_DIR/modules/mod-playerbots/conf/playerbots.conf.dist" ]; then
+        cp "$SERVER_DIR/modules/mod-playerbots/conf/playerbots.conf.dist" \
+           "$SERVER_DIR/playerbot-overrides/playerbots.conf"
+        perl -0pi -e 's/^AiPlayerbot\.RandomBotAutologin\s*=.*/AiPlayerbot.RandomBotAutologin = 1/m' "$SERVER_DIR/playerbot-overrides/playerbots.conf"
+        perl -0pi -e 's/^AiPlayerbot\.MinRandomBots\s*=.*/AiPlayerbot.MinRandomBots = 1600/m' "$SERVER_DIR/playerbot-overrides/playerbots.conf"
+        perl -0pi -e 's/^AiPlayerbot\.MaxRandomBots\s*=.*/AiPlayerbot.MaxRandomBots = 2000/m' "$SERVER_DIR/playerbot-overrides/playerbots.conf"
+    fi
+
+    if ! grep -q "wow-admin-dashboard:" "$override_file" 2>/dev/null; then
+        dashboard_password="$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24)"
+        dashboard_password="${dashboard_password:-ChangeMeBeforeUse}"
+        cat >> "$override_file" << ADMIN_DASHBOARD
+  wow-admin-dashboard:
+    build:
+      context: ./admin-dashboard
+    depends_on:
+      ac-database:
+        condition: service_healthy
+      ac-worldserver:
+        condition: service_started
+    networks:
+      - ac-network
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./modules/mod-playerbots/conf/playerbots.conf.dist:/playerbots.conf.dist:ro
+      - ./playerbot-overrides:/playerbot-overrides
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WOW_ADMIN_JDBC_URL: "jdbc:mysql://ac-database:3306/acore_auth?allowPublicKeyRetrieval=true&useSSL=false"
+      WOW_ADMIN_DB_USER: "root"
+      WOW_ADMIN_DB_PASSWORD: "password"
+      WOW_ADMIN_AUTH_DB: "acore_auth"
+      WOW_ADMIN_CHARACTERS_DB: "acore_characters"
+      WOW_ADMIN_PLAYERBOTS_DB: "acore_playerbots"
+      WOW_ADMIN_PLAYERBOTS_CONFIG_PATH: "/playerbots.conf.dist"
+      WOW_ADMIN_PLAYERBOTS_OVERRIDE_ENV_PATH: "/playerbot-overrides/playerbots.env"
+      WOW_ADMIN_PLAYERBOTS_GENERATED_CONFIG_PATH: "/playerbot-overrides/playerbots.conf"
+      WOW_ADMIN_DOCKER_SOCKET_PATH: "/var/run/docker.sock"
+      WOW_ADMIN_WORLDSERVER_CONTAINER: "ac-worldserver"
+      WOW_ADMIN_DASHBOARD_USER: "admin"
+      WOW_ADMIN_DASHBOARD_PASSWORD: "$dashboard_password"
+      WOW_ADMIN_SOAP_URL: "http://ac-worldserver:7878/"
+      WOW_ADMIN_SOAP_USER: ""
+      WOW_ADMIN_SOAP_PASSWORD: ""
+ADMIN_DASHBOARD
+    fi
+
+    print_success "Admin dashboard installed"
+    print_info "Dashboard URL: http://127.0.0.1:8090"
+    print_info "Dashboard login is admin plus the password in docker-compose.override.yml"
+}
 
 # ─────────────────────────────────────────
 # SYSTEM CHECKS
@@ -341,6 +416,7 @@ install_server() {
         print_info "Skipping compile — reusing your existing build."
         print_info "To force a fresh compile, remove the server folder:"
         print_info "  sudo rm -rf $SERVER_DIR"
+        install_admin_dashboard
         cd "$SERVER_DIR" || exit 1
         docker compose up -d 2>&1 | tail -5
         return 0
@@ -395,11 +471,9 @@ services:
       target: worldserver
     volumes:
       - ./modules:/azerothcore/modules
+      - ./playerbot-overrides/playerbots.conf:/azerothcore/env/dist/etc/modules/playerbots.conf:ro
     environment:
       AC_PLAYERBOTS_UPDATES_ENABLE_DATABASES: "1"
-      AC_AI_PLAYERBOT_RANDOM_BOT_AUTOLOGIN: "1"
-      AC_AI_PLAYERBOT_MIN_RANDOM_BOTS: "1600"
-      AC_AI_PLAYERBOT_MAX_RANDOM_BOTS: "2000"
   ac-authserver:
     build:
       context: .
@@ -413,6 +487,8 @@ services:
       context: .
       target: client-data
 OVERRIDE
+
+    install_admin_dashboard
 
     print_info "Compiling Playerbots server (2-4 hours)..."
     print_info "Progress saved to: ~/playerbots-build.log"
@@ -534,7 +610,7 @@ echo ""
 # Stop any other running WoW servers first
 # Only stops AzerothCore containers — never touches other Docker services
 WOW_CONTAINERS=\$(docker ps --format '{{.Names}}' 2>/dev/null | \
-    grep -iE "worldserver|authserver|ac-database|ac-eluna|ac-client|ac-db-import" || true)
+    grep -iE "worldserver|authserver|ac-database|ac-eluna|ac-client|ac-db-import|wow-admin-dashboard" || true)
 
 if [ -n "\$WOW_CONTAINERS" ]; then
     echo -e "  ${YELLOW}⚠️  Stopping any running WoW servers first...${NC}"
@@ -678,8 +754,13 @@ USEFUL COMMANDS:
   Start:   cd ${SERVER_DIR} && docker compose up -d
   Stop:    cd ${SERVER_DIR} && docker compose down
   Logs:    cd ${SERVER_DIR} && docker compose logs -f
+  Dashboard: http://127.0.0.1:8090
   Console: docker attach \$(docker ps --format '{{.Names}}' | grep worldserver | head -1)
     (Exit safely: Ctrl+P then Ctrl+Q. NOT Ctrl+C.)
+
+ENABLE DASHBOARD COMMAND BUTTONS:
+  Edit docker-compose.override.yml and set WOW_ADMIN_SOAP_USER / WOW_ADMIN_SOAP_PASSWORD
+  on the wow-admin-dashboard service, then run docker compose up -d.
 
 CREATE ACCOUNTS:
   docker attach \$(docker ps --format '{{.Names}}' | grep worldserver | head -1)
