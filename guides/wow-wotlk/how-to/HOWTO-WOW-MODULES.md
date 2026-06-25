@@ -300,6 +300,21 @@ Also normal. Put it on a flat hard surface so the fan can breathe. Avoid blanket
 
 After the rebuild finishes, the server has to fully restart. Try option 6 (Server status) — wait until everything shows `Running`. Some modules also need configuration through `worldserver.conf` files. The manager will tell you when this is needed.
 
+For 1v1 Arena, make sure the active config exists after the rebuild:
+
+```bash
+ls ~/wow-server-playerbots/env/dist/etc/modules/1v1arena.conf
+```
+
+If the worldserver log repeats missing settings like `Arena1v1.Announcer`, only the template exists. Activate it and restart the worldserver:
+
+```bash
+cp ~/wow-server-playerbots/env/dist/etc/modules/1v1arena.conf.dist \
+  ~/wow-server-playerbots/env/dist/etc/modules/1v1arena.conf
+cd ~/wow-server-playerbots
+docker compose restart ac-worldserver
+```
+
 ### I attached to the worldserver console and now I can't get out
 
 **Press Ctrl+P, then immediately press Ctrl+Q.**
