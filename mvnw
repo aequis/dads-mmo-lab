@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+set -eu
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$ROOT_DIR/.tools/bin/mvn" -Dmaven.repo.local="$ROOT_DIR/.tools/m2-repository" -f "$ROOT_DIR/admin-dashboard/pom.xml" "$@"
